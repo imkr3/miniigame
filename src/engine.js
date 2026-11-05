@@ -6,16 +6,46 @@
 // 각 게임은 GameBase를 상속해서 init / update(dt) / draw(ctx) / onAction(action, repeat) 만 구현하면 된다.
 import { sfx } from './sfx.js';
 
-const BASE_KEYS = {
-  ArrowLeft: 'left', KeyA: 'left',
-  ArrowRight: 'right', KeyD: 'right',
-  ArrowUp: 'up', KeyW: 'up',
-  ArrowDown: 'down', KeyS: 'down',
-  Space: 'action', Enter: 'action',
-  KeyP: 'pause', Escape: 'pause',
-  KeyM: 'mute',
-  KeyR: 'restart',
+// 기본 키 배치 (액션 → 키 코드 목록). 게임은 static bindings 로 덮어쓰고, 사용자는 ⚙ 설정에서 바꿀 수 있다.
+const DEFAULT_BINDINGS = {
+  left: ['ArrowLeft', 'KeyA'],
+  right: ['ArrowRight', 'KeyD'],
+  up: ['ArrowUp', 'KeyW'],
+  down: ['ArrowDown', 'KeyS'],
+  action: ['Space', 'Enter'],
+  pause: ['KeyP', 'Escape'],
+  restart: ['KeyR'],
+  mute: ['KeyM'],
 };
+const SYSTEM_ACTIONS = ['pause', 'restart', 'mute'];
+const DEFAULT_LABELS = {
+  left: '왼쪽', right: '오른쪽', up: '위', down: '아래', action: '동작',
+  pause: '일시정지', restart: '처음부터', mute: '소리 켜기/끄기',
+};
+const MODIFIER_CODES = ['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight'];
+
+/** 키 코드를 사람이 읽기 쉬운 이름으로 */
+export function keyName(code) {
+  if (!code) return '—';
+  const named = {
+    ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Space: 'Space', Enter: 'Enter', Escape: 'Esc',
+    ShiftLeft: 'L-Shift', ShiftRight: 'R-Shift', ControlLeft: 'L-Ctrl', ControlRight: 'R-Ctrl', AltLeft: 'L-Alt',
+    AltRight: 'R-Alt', MetaLeft: 'L-Cmd', MetaRight: 'R-Cmd', Backquote: '`', Minus: '-', Equal: '=',
+    BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/',
+    Tab: 'Tab', CapsLock: 'Caps', Backspace: '⌫',
+  };
+  if (named[code]) return named[code];
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return `Num${code.slice(6)}`;
+  return code;
+}
+
+// 모든 게임 공통 설정
+const GLOBAL_SETTINGS = [
+  { id: 'vibrate', label: '진동 (모바일)', type: 'toggle', default: true },
+  { id: 'shake', label: '화면 흔들림', type: 'toggle', default: true },
+];
 
 const CSS = `
 .mg-root{--mg-bg:#0e0f14;--mg-panel:#171a23;--mg-accent:#3b82f6;display:flex;flex-direction:column;width:100%;margin:0 auto;
@@ -23,11 +53,33 @@ const CSS = `
   user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
   background:var(--mg-panel);border-radius:14px;overflow:hidden;box-sizing:border-box}
 .mg-root *{box-sizing:border-box}
+.mg-root{position:relative}
+.mg-settings{position:absolute;inset:0;z-index:5;background:#0b0d12;overflow:auto;-webkit-overflow-scrolling:touch;
+  display:flex;justify-content:center;padding:14px;animation:mg-fade .15s}
+.mg-settings .mg-panel{width:100%;max-width:460px;margin:auto 0}
+.mg-settings h3{margin:14px 0 8px;font-size:13px;color:#9ca3af;font-weight:700;letter-spacing:.3px}
+.mg-settings h3:first-child{margin-top:0}
+.mg-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #222737;font-size:14px}
+.mg-row .mg-ctl{display:flex;gap:6px;align-items:center}
+.mg-key{min-width:64px;padding:6px 10px;border-radius:8px;border:1px solid #333a4f;background:#1d2130;color:#e5e7eb;font:inherit;
+  font-size:13px;font-weight:700;cursor:pointer}
+.mg-key:hover{border-color:var(--mg-accent)}
+.mg-key.mg-empty{color:#6b7280;font-weight:400}
+.mg-key.mg-listen{border-color:#facc15;color:#facc15;animation:mg-pulse 1s infinite}
+.mg-row input[type=range]{width:120px;accent-color:var(--mg-accent)}
+.mg-row .mg-val{min-width:52px;text-align:right;font-variant-numeric:tabular-nums;color:#cbd5e1;font-size:13px}
+.mg-row input[type=checkbox]{width:20px;height:20px;accent-color:var(--mg-accent)}
+.mg-row select{background:#1d2130;color:#e5e7eb;border:1px solid #333a4f;border-radius:8px;padding:6px 8px;font:inherit;font-size:13px}
+.mg-tip{font-size:12px;color:#6b7280;margin:6px 0 0;line-height:1.5}
+.mg-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;position:sticky;bottom:0;padding:8px 0;background:#0b0d12}
+.mg-foot button{border:0;border-radius:999px;padding:10px 18px;font:inherit;font-weight:700;font-size:14px;cursor:pointer;background:#2a3040;color:#e5e7eb}
+.mg-foot button.mg-primary{background:var(--mg-accent);color:#fff}
+.mg-stats{font-size:13px;opacity:.75;margin:0}
 .mg-root.mg-fit{height:100%;border-radius:0}
-.mg-hud{display:flex;gap:12px;align-items:center;padding:8px 10px 8px 14px;font-size:14px;flex:none}
+.mg-hud{display:flex;gap:10px;align-items:center;padding:8px 10px 8px 14px;font-size:14px;flex:none}
 .mg-hud b{font-variant-numeric:tabular-nums;font-size:16px;margin-left:3px}
 .mg-hud .mg-info{flex:1;text-align:right;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mg-hud button{touch-action:manipulation;background:#262b3a;color:#e5e7eb;border:0;border-radius:8px;width:34px;height:30px;cursor:pointer;font-size:15px;line-height:1;flex:none}
+.mg-hud button{touch-action:manipulation;background:#262b3a;color:#e5e7eb;border:0;border-radius:8px;width:32px;height:30px;cursor:pointer;font-size:15px;line-height:1;flex:none}
 .mg-hud button:hover{background:#323949}
 .mg-stage{position:relative;display:flex;align-items:center;justify-content:center;background:var(--mg-bg);overflow:hidden}
 .mg-fit .mg-stage{flex:1;min-height:0}
@@ -67,7 +119,7 @@ const CSS = `
 .mg-lr{display:flex;gap:10px}
 .mg-lr button{width:72px;height:64px}
 .mg-btns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-.mg-btns button{min-width:64px;height:64px;padding:0 12px;font-size:17px;border-radius:50px}
+.mg-btns button{min-width:64px;height:64px;padding:0 10px;font-size:16px;border-radius:50px;white-space:nowrap}
 .mg-btns button.mg-wide{min-width:120px;height:72px}
 /* 가로 모드(폰 눕힘): 버튼을 화면 양옆으로 */
 .mg-land{display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto 1fr;grid-template-areas:"hud hud hud" "pl stage pr"}
@@ -88,6 +140,13 @@ function injectStyle() {
   s.id = 'mg-style';
   s.textContent = CSS;
   document.head.appendChild(s);
+}
+
+function loadJSON(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
 }
 
 const storage = {
@@ -117,8 +176,12 @@ let activeGame = null;
 export class GameBase {
   /** 게임 정보. controls = 키보드 설명, touchControls = 모바일 설명 */
   static meta = { id: 'base', title: 'Game', description: '', controls: '', touchControls: '' };
-  /** 추가 키 매핑 예: { KeyC: 'hold' } */
-  static keys = {};
+  /** 기본 키 배치 덮어쓰기 (액션 → 키 코드 목록) 예: { hold: ['KeyC'] } */
+  static bindings = {};
+  /** 설정창에 보일 액션 이름 */
+  static actionLabels = {};
+  /** 게임 설정 항목: [{ id, label, type: 'range'|'toggle'|'select', default, min, max, step, unit, options: [[값, 이름]], tip }] */
+  static settings = [];
   /** 모바일 가상 패드: left = 'dpad' | 'lr' | null, buttons = [{ action, label, primary?, wide? }] */
   static pad = { left: 'dpad', buttons: [] };
   /** 터치 제스처 → 액션 (null 이면 무시) */
@@ -141,7 +204,14 @@ export class GameBase {
     injectStyle();
     const C = this.constructor;
     this.meta = C.meta;
-    this.keymap = { ...BASE_KEYS, ...C.keys };
+    this.defaultBindings = { ...DEFAULT_BINDINGS, ...C.bindings };
+    this.bindingsKey = `miniigame:${this.meta.id}:keys`;
+    this.bindings = { ...this.defaultBindings, ...loadJSON(this.bindingsKey, {}) };
+    this._buildKeymap();
+    this.settingsKey = `miniigame:${this.meta.id}:settings`;
+    this.cfg = {};
+    for (const it of [...GLOBAL_SETTINGS, ...C.settings]) this.cfg[it.id] = it.default;
+    Object.assign(this.cfg, loadJSON('miniigame:global', {}), loadJSON(this.settingsKey, {}));
     this.width = width;
     this.height = height;
     this.fit = fit;
@@ -179,7 +249,9 @@ export class GameBase {
   addScore(n) { this.setScore(this.score + n); }
   setInfo(text) { if (this.$info.textContent !== text) this.$info.textContent = text; }
   sound(name) { sfx.play(name); }
-  vibrate(ms = 30) { if (this.touchMode) navigator.vibrate?.(ms); }
+  vibrate(ms = 30) { if (this.touchMode && this.cfg.vibrate) navigator.vibrate?.(ms); }
+  /** 설정값이 바뀌었을 때 (서브클래스에서 필요하면 구현) */
+  onSettingsChange(_id) {}
 
   /** 파티클 폭발 */
   burst(x, y, { color = '#fff', count = 12, speed = 140, life = 0.6, size = 3, gravity = 0 } = {}) {
@@ -192,9 +264,10 @@ export class GameBase {
   floatText(x, y, text, color = '#fde68a', size = 16) {
     this.fx.push({ kind: 't', x, y, vx: 0, vy: -40, life: 0.9, max: 0.9, text, color, size, gravity: 0 });
   }
-  shake(amount = 6, time = 0.25) { this._shake = { t: time, max: time, amount }; }
+  shake(amount = 6, time = 0.25) { if (this.cfg.shake) this._shake = { t: time, max: time, amount }; }
 
-  gameOver(title = '게임 오버') {
+  /** @param {string} [stats] 게임오버 화면에 덧붙일 통계 문구 */
+  gameOver(title = '게임 오버', stats = '') {
     if (this.state === 'over') return;
     this.state = 'over';
     this.keys.clear();
@@ -212,7 +285,7 @@ export class GameBase {
     }).join('')}</ol>` : '';
     const badge = isBest && this.score > 0 ? '<div class="mg-new">🏆 최고 기록!</div>'
       : rank >= 0 ? `<div class="mg-new">${rank + 1}위 기록!</div>` : '';
-    this._showOverlay(title, `<div class="mg-big">${this.score}</div>${badge}${list}`, 'restart');
+    this._showOverlay(title, `<div class="mg-big">${this.score}</div>${badge}${stats ? `<p class="mg-stats">${esc(stats)}</p>` : ''}${list}`, 'restart');
     this._emit('gameover', { score: this.score, best: this.best, newBest: isBest });
   }
 
@@ -275,6 +348,7 @@ export class GameBase {
         <span>최고<b class="mg-best">0</b></span>
         <span class="mg-info"></span>
         <button type="button" class="mg-mute" aria-label="소리"></button>
+        <button type="button" class="mg-gear" aria-label="설정">⚙</button>
         <button type="button" class="mg-pause" aria-label="일시정지"></button>
       </div>
       <div class="mg-stage">
@@ -299,6 +373,7 @@ export class GameBase {
     const $exit = $('.mg-exit');
     if (this.onExit) $exit.addEventListener('click', () => this.onExit()); else $exit.remove();
     this.$mute.addEventListener('click', () => { sfx.unlock(); this.toggleMute(); });
+    $('.mg-gear').addEventListener('click', () => this.openSettings());
     this.$pauseBtn.addEventListener('click', () => {
       sfx.unlock();
       if (this.state === 'ready' || this.state === 'over') this.start(); else this.togglePause();
@@ -351,7 +426,141 @@ export class GameBase {
   }
 
   _controlsText() {
-    return this.touchMode ? (this.meta.touchControls || this.meta.controls) : this.meta.controls;
+    if (this.touchMode) return this.meta.touchControls || this.meta.controls;
+    const custom = JSON.stringify(this.bindings) !== JSON.stringify(this.defaultBindings);
+    return custom ? '조작키를 바꿨어요 · ⚙ 설정에서 확인' : this.meta.controls;
+  }
+
+  _buildKeymap() {
+    this.keymap = {};
+    for (const [action, codes] of Object.entries(this.bindings)) for (const c of codes) if (c) this.keymap[c] = action;
+  }
+
+  // ---- 설정창 ----
+  openSettings() {
+    if (this.$settings) return;
+    if (this.state === 'playing') this.pause();
+    this.keys.clear();
+    activeGame = this;
+    this.$settings = document.createElement('div');
+    this.$settings.className = 'mg-settings';
+    this.root.appendChild(this.$settings);
+    this._listening = null;
+    this._renderSettings();
+  }
+
+  closeSettings() {
+    if (!this.$settings) return;
+    this.$settings.remove();
+    this.$settings = null;
+    this._listening = null;
+    const ctrl = this.$overlay.querySelector('.mg-ctrl');
+    if (ctrl) ctrl.textContent = this._controlsText();
+  }
+
+  _renderSettings() {
+    const C = this.constructor;
+    const labels = { ...DEFAULT_LABELS, ...C.actionLabels };
+    const actions = [...Object.keys(this.defaultBindings).filter((a) => !SYSTEM_ACTIONS.includes(a)), ...SYSTEM_ACTIONS];
+    const L = this._listening;
+    const keyRows = actions.map((a) => {
+      const codes = this.bindings[a] ?? [];
+      const chip = (slot) => {
+        const listening = L && L.action === a && L.slot === slot;
+        const code = codes[slot];
+        return `<button type="button" class="mg-key ${listening ? 'mg-listen' : ''} ${code ? '' : 'mg-empty'}" data-a="${a}" data-slot="${slot}">${
+          listening ? '키 입력…' : esc(code ? keyName(code) : '없음')}</button>`;
+      };
+      return `<div class="mg-row"><span>${esc(labels[a] ?? a)}</span><span class="mg-ctl">${chip(0)}${chip(1)}</span></div>`;
+    }).join('');
+
+    const ctl = (it) => {
+      const v = this.cfg[it.id];
+      if (it.type === 'toggle') return `<input type="checkbox" data-s="${it.id}" ${v ? 'checked' : ''}>`;
+      if (it.type === 'select') return `<select data-s="${it.id}">${it.options.map(([val, name]) =>
+        `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(name)}</option>`).join('')}</select>`;
+      return `<input type="range" data-s="${it.id}" min="${it.min}" max="${it.max}" step="${it.step ?? 1}" value="${v}">
+        <span class="mg-val" data-v="${it.id}">${this._fmt(it, v)}</span>`;
+    };
+    const setRows = (list) => list.map((it) => `<div class="mg-row"><span>${esc(it.label)}${it.tip ? `<p class="mg-tip">${esc(it.tip)}</p>` : ''}</span>
+      <span class="mg-ctl">${ctl(it)}</span></div>`).join('');
+
+    this.$settings.innerHTML = `<div class="mg-panel">
+      ${C.settings.length ? `<h3>${esc(this.meta.title)} 설정</h3>${setRows(C.settings)}` : ''}
+      <h3>공통</h3>${setRows(GLOBAL_SETTINGS)}
+      ${this.touchMode ? '' : `<h3>조작키</h3>${keyRows}
+        <p class="mg-tip">버튼을 누른 뒤 원하는 키를 입력하세요. Backspace = 지우기, Esc = 취소. 다른 동작에 쓰던 키는 거기서 빠집니다.</p>`}
+      <div class="mg-foot"><button type="button" data-reset>기본값으로</button><button type="button" class="mg-primary" data-close>닫기</button></div>
+    </div>`;
+
+    const $ = (s) => this.$settings.querySelectorAll(s);
+    $('[data-a]').forEach((b) => b.addEventListener('click', () => {
+      this._listening = { action: b.dataset.a, slot: Number(b.dataset.slot) };
+      this._renderSettings();
+    }));
+    $('[data-s]').forEach((el) => {
+      const it = [...GLOBAL_SETTINGS, ...C.settings].find((x) => x.id === el.dataset.s);
+      el.addEventListener('input', () => {
+        const v = it.type === 'toggle' ? el.checked : it.type === 'range' ? Number(el.value)
+          : (typeof it.default === 'number' ? Number(el.value) : el.value);
+        this._setCfg(it.id, v);
+        const out = this.$settings.querySelector(`[data-v="${it.id}"]`);
+        if (out) out.textContent = this._fmt(it, v);
+      });
+    });
+    $('[data-close]')[0].addEventListener('click', () => this.closeSettings());
+    $('[data-reset]')[0].addEventListener('click', () => {
+      this.bindings = { ...this.defaultBindings };
+      saveJSON(this.bindingsKey, {});
+      this._buildKeymap();
+      for (const it of [...GLOBAL_SETTINGS, ...C.settings]) this._setCfg(it.id, it.default);
+      this._renderSettings();
+    });
+  }
+
+  _fmt(it, v) {
+    if (it.format) return it.format(v);
+    return `${v}${it.unit ?? ''}`;
+  }
+
+  _setCfg(id, v) {
+    this.cfg[id] = v;
+    const global = GLOBAL_SETTINGS.some((g) => g.id === id);
+    const key = global ? 'miniigame:global' : this.settingsKey;
+    saveJSON(key, { ...loadJSON(key, {}), [id]: v });
+    this.onSettingsChange(id);
+  }
+
+  _settingsKey(e) {
+    const L = this._listening;
+    if (!L) {
+      if (e.code === 'Escape') { e.preventDefault(); this.closeSettings(); }
+      return;
+    }
+    if (e.target.closest?.('input,select')) e.target.blur?.();
+    e.preventDefault();
+    this._listening = null;
+    if (e.code === 'Escape') return this._renderSettings();
+    const next = {};
+    for (const [a, codes] of Object.entries(this.bindings)) next[a] = [...codes];
+    if (e.code === 'Backspace' || e.code === 'Delete') {
+      next[L.action][L.slot] = null;
+    } else {
+      // 이미 다른 동작에 쓰던 키면 거기서 제거
+      for (const a of Object.keys(next)) next[a] = next[a].map((c) => (c === e.code ? null : c));
+      next[L.action][L.slot] = e.code;
+    }
+    for (const a of Object.keys(next)) {
+      next[a] = next[a].slice(0, 2);
+      while (next[a].length && !next[a].at(-1)) next[a].pop();
+    }
+    this.bindings = next;
+    // 기본값과 다른 동작만 저장
+    const diff = {};
+    for (const a of Object.keys(next)) if (JSON.stringify(next[a]) !== JSON.stringify(this.defaultBindings[a] ?? [])) diff[a] = next[a];
+    saveJSON(this.bindingsKey, diff);
+    this._buildKeymap();
+    this._renderSettings();
   }
 
   _setTouchMode(on) {
@@ -454,8 +663,10 @@ export class GameBase {
   _bindEvents() {
     this._onKeyDown = (e) => {
       if (activeGame !== this) return;
+      if (this.$settings) return this._settingsKey(e);
       const a = this.keymap[e.code];
-      if (!a || e.ctrlKey || e.metaKey || e.altKey) return;
+      const mod = (e.ctrlKey || e.metaKey || e.altKey) && !MODIFIER_CODES.includes(e.code);
+      if (!a || mod) return;
       if (e.target.closest?.('input,textarea,select,[contenteditable]')) return;
       e.preventDefault();
       sfx.unlock();

@@ -18,6 +18,7 @@ const PRESETS = {
   levelup: { type: 'square',   notes: [523, 659, 784, 1047, 1319], d: 0.06, v: 0.045 },
   over:    { type: 'triangle', notes: [392, 330, 262, 196], d: 0.14, v: 0.12 },
   tick:    { type: 'square',   f: [1200, 1200], d: 0.02, v: 0.02 },
+  spin:    { type: 'triangle', f: [330, 1320], d: 0.1, v: 0.07 },
 };
 
 const KEY = 'miniigame:muted';
