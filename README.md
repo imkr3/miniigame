@@ -144,6 +144,78 @@ python3 -m http.server 8000
 </script>
 ```
 
+## 멀티플레이 (블록 낙하 배틀 · 카트 레이스)
+
+시작 화면/결과 화면의 **🌐 멀티플레이** 버튼 → 닉네임 → 방 만들기(4자리 코드) 또는 코드로 참가 → 방장이 시작.
+
+| 게임 | 인원 | 내용 |
+|---|---|---|
+| 블록 낙하 배틀 | 2~8명 | 모두 같은 블록 순서. 줄을 지우면 상대에게 쓰레기 줄 공격(일반 0/1/2/4줄, 스핀 2/4/6, 미니 0/1/2, B2B +1, 콤보 보너스, 퍼펙트 클리어 +10). 받을 공격은 내가 줄을 지워 상쇄. 상대 보드 실시간 표시, 마지막 생존자 승리. 방 설정: 시작 레벨 |
+| 카트 멀티 레이스 | 2~8명 | 각자 캐릭터·카트 선택, 방장이 트랙·랩 수·빈자리 AI 여부 결정. 위치는 초당 15회 동기화(받는 쪽은 예측+보간), AI는 방장이 계산(방장이 나가면 다음 방장이 이어받음), 아이템(로켓·추적 로켓·오일·지뢰)·맞음·아이템 박스·슈퍼 터보 충돌 동기화, 상대 이름표 |
+
+멀티 결과는 혼자 하기 최고 점수·TOP 5에는 기록되지 않습니다.
+
+### 구조
+
+서버는 **게임 계산을 하지 않는 "방 + 메시지 중계" 서버**입니다 (각 클라이언트가 자기 게임을 계산). 그래서 가볍고 어떤 사이트에도 붙이기 쉽습니다.
+
+```
+src/net/server-core.js   방 서버 핵심 로직 (의존성 없음, ~170줄) - Node 서버와 브라우저 로컬 서버가 공유
+server/server.js         Node.js WebSocket 서버 (ws 패키지). 단독 실행 또는 기존 서버에 붙이기
+src/net/local-worker.js  서버 없이 같은 브라우저의 탭끼리 테스트하는 로컬 서버 (SharedWorker)
+src/net/net.js           클라이언트 (WebSocket / 로컬)
+src/net/lobby.js         공통 로비 화면
+```
+
+### 테스트하기
+
+- **서버 없이 (GitHub Pages 그대로)**: 같은 브라우저에서 창(탭) 두 개를 열고 각각 🌐 멀티플레이 → 한쪽에서 방 만들기, 다른 쪽에서 코드 입력. (SharedWorker 를 지원하는 브라우저: PC Chrome·Edge·Firefox·Safari. 안드로이드 Chrome 은 미지원 → 서버 필요)
+- **로컬 서버로 (여러 기기)**:
+  ```bash
+  npm install
+  npm run server          # http://localhost:8787 에서 게임 + ws://localhost:8787/miniigame-ws
+  ```
+  같은 와이파이의 다른 기기에서 `http://<내 PC IP>:8787/?server=ws://<내 PC IP>:8787/miniigame-ws`
+
+### 다른 사이트 서버에 붙이기
+
+**Node.js 서버라면** (Express 등) - 기존 http 서버에 WebSocket 경로 하나만 추가:
+
+```js
+import { attachMiniigame } from './miniigame/server/server.js';   // npm i ws 필요
+const httpServer = app.listen(3000);
+attachMiniigame(httpServer, { path: '/miniigame-ws' });
+```
+
+**클라이언트에 서버 주소 알려주기** (셋 중 하나):
+
+```html
+<script>window.MINIIGAME_SERVER = 'wss://내사이트.com/miniigame-ws';</script>
+```
+```js
+mountGame('kart', el, { server: 'wss://내사이트.com/miniigame-ws' });
+```
+```
+embed.html?game=blocks&server=wss://내사이트.com/miniigame-ws
+```
+
+**Node가 아닌 서버라면** (Python, Java, Go 등) - 아래 JSON 프로토콜을 그대로 구현하면 됩니다. `src/net/server-core.js` 가 기준 구현입니다.
+
+| 클라이언트 → 서버 | 서버 → 클라이언트 |
+|---|---|
+| `{t:'hello', name}` 닉네임 | `{t:'welcome', id, v}` 접속 직후 내 id |
+| `{t:'create', game, settings}` 방 만들기 | `{t:'room', room}` 방 상태가 바뀔 때마다 (code, game, host, state, settings, max, players[{id,name,ready,info}]) |
+| `{t:'join', code}` / `{t:'leave'}` | `{t:'start', seed, settings, players, game}` 방장이 시작 |
+| `{t:'info', info, ready}` 내 선택·준비 | `{t:'msg', from, d}` 게임 메시지 중계 |
+| `{t:'settings', settings}` 방장만 | `{t:'left', id}` 누가 나감 (방장이 나가면 다음 사람이 방장) |
+| `{t:'start'}` / `{t:'end'}` 방장만 | `{t:'error', code, msg}` |
+| `{t:'msg', d, to?}` 방 사람들(또는 to)에게 전달 | `{t:'pong', c, s}` |
+| `{t:'ping', c}` | |
+
+게임 메시지(`d`)의 내용은 서버가 해석하지 않습니다. 블록: `board`(보드 스냅샷)·`atk`(공격)·`dead`, 카트: `st`(위치)·`obj`(아이템 생성)·`hit`·`box`·`bump`.
+
+> 참고: 현재는 친구끼리 하는 용도라 서버가 결과를 검증하지 않습니다(각자 계산). 랭킹·보상을 붙일 거면 서버 쪽 검증을 추가해야 합니다.
+
 ## 구조
 
 ```
@@ -153,6 +225,8 @@ src/
   registry.js   게임 목록 + mountGame()
   games/*.js    게임별 구현
 index.html      게임 목록 페이지
+src/net/        멀티플레이 (로비·클라이언트·방 서버 로직)
+server/         Node.js 멀티플레이 서버
 manifest.webmanifest, sw.js, icons/   PWA(설치·오프라인)
 embed.html      iframe용 단일 게임 페이지
 ```

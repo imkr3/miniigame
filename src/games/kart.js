@@ -18,6 +18,12 @@ const RANK_POINTS = [1000, 800, 650, 520, 420, 320, 220, 120];
 const DIFF = { easy: { skill: 0.86, rubber: 0.6, items: 0.5 }, normal: { skill: 0.94, rubber: 1, items: 1 }, hard: { skill: 1.0, rubber: 1.3, items: 1.4 } };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function seededRandom(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const r2 = (v) => Math.round(v * 100) / 100;
+const SEND_RATE = 1 / 15; // 멀티플레이 위치 전송 주기
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
 const hex = (n) => '#' + n.toString(16).padStart(6, '0');
@@ -127,9 +133,159 @@ export default class Kart extends GameBase {
     for (const o of [...this.dyn.children]) this.dyn.remove(o);
   }
 
+  // ---------------- 멀티플레이 ----------------
+  static multiplayer = { min: 2, max: 8, label: '멀티 레이스' };
+
+  lobbyConfig() {
+    return {
+      settings: [
+        { id: 'track', label: '트랙', type: 'select', default: 0, options: TRACKS.map((t, i) => [i, `${t.emoji} ${t.name}`]) },
+        { id: 'laps', label: '랩 수', type: 'range', min: 1, max: 5, default: 3 },
+        { id: 'ai', label: '빈자리 AI로 채우기', type: 'toggle', default: true },
+      ],
+      info: [
+        { id: 'char', label: '캐릭터', type: 'select', default: 0, options: CHARACTERS.map((c, i) => [i, `${c.emoji} ${c.name}`]) },
+        { id: 'kart', label: '카트', type: 'select', default: 0, options: KARTS.map((k, i) => [i, k.name]) },
+      ],
+    };
+  }
+
+  describeInfo(info) {
+    const c = CHARACTERS[info?.char ?? 0], k = KARTS[info?.kart ?? 0];
+    return c && k ? `${c.emoji} ${k.name} ` : '';
+  }
+
+  startMulti(net, start) {
+    if (this.noGL) return;
+    this.leaveMulti();
+    this.multi = { net, me: net.id, isHost: net.isHost, seed: start.seed, settings: start.settings ?? {}, players: start.players, seq: 0, bumpAt: {} };
+    this.offNet = [
+      net.on('msg', (from, d) => this.onNet(from, d)),
+      net.on('left', (id) => this.playerLeft(id)),
+      net.on('room', (room) => { // 방장이 나가면 내가 AI를 이어받음
+        if (this.multi && room && room.host === this.multi.me && !this.multi.isHost) {
+          this.multi.isHost = true;
+          for (const r of this.racers) if (!r.human) r.remote = false;
+        }
+      }),
+    ];
+    this.noAutoPause = true;
+    this.sel.track = clamp(Number(this.multi.settings.track ?? 0), 0, TRACKS.length - 1);
+    this.pendingMulti = true;
+    this.start();
+  }
+
+  leaveMulti() {
+    this.offNet?.forEach((off) => off());
+    this.offNet = null;
+    this.multi = null;
+    this.noAutoPause = false;
+  }
+
+  onNetClosed() { if (this.multi && this.phase !== 'done') this.endRace(); }
+  restart() { if (this.multi) return; super.restart(); }
+
+  byId(id) { return this.racers.find((r) => r.id === id); }
+
+  onNet(from, d) {
+    if (!this.multi || !d) return;
+    switch (d.k) {
+      case 'st':
+        for (const a of d.r) {
+          const r = this.byId(a[0]);
+          if (!r || !r.remote) continue;
+          r.net = { x: a[1], y: a[2], z: a[3], h: a[4], speed: a[5], slip: a[6], dl: a[7], gl: a[8], b: a[9], sp: a[10], sh: a[11], tr: a[15], dd: a[16] };
+          r.netAt = performance.now();
+          r.progress = a[12]; r.lap = a[13];
+          if (a[14] && !r.finished) { r.finished = true; r.finishTime = a[14]; }
+        }
+        break;
+      case 'obj': this.spawnNetObj(d.o); break;
+      case 'hit': {
+        const o = this.objs.find((x) => x.id === d.id);
+        if (o) { o.life = 0; if (o.type !== 'oil') this.explode(o); }
+        break;
+      }
+      case 'bump': { const r = this.byId(d.to); if (r && !r.remote) this.hitRacer(r, 'turbo'); break; }
+      case 'box': { const b = this.boxes[d.i]; if (b) { b.respawn = 2.2; b.mesh.visible = false; } break; }
+    }
+  }
+
+  playerLeft(id) {
+    const r = this.byId(id);
+    if (!r || !this.multi) return;
+    this.dyn.remove(r.model.root);
+    this.racers = this.racers.filter((x) => x !== r);
+    this.msg = { text: `${r.name} 님이 나갔어요`, t: 1.5 };
+  }
+
+  encodeRacer(r) {
+    return [r.id, r2(r.x), r2(r.y), r2(r.z), r2(r.h), Math.round(r.speed * 10) / 10, r2(r.slip), r.drifting ? this.driftLevel(r) + 1 : 0,
+      r.gliding ? 1 : 0, r.boostT > 0 ? 1 : 0, r.spinT > 0 ? 1 : 0, (r.shieldT > 0 ? 1 : 0) | (r.invT > 0 ? 2 : 0),
+      Math.round(r.progress * 10) / 10, r.lap, r.finished ? r2(r.finishTime) : 0, r.trick ? 1 : 0, r.driftDir];
+  }
+
+  netTick(dt) {
+    const m = this.multi;
+    m.sendT = (m.sendT ?? 0) + dt;
+    if (m.sendT >= SEND_RATE) this.sendState();
+  }
+
+  sendState() {
+    const m = this.multi;
+    if (!m) return;
+    m.sendT = 0;
+    m.net.relay({ k: 'st', r: this.racers.filter((r) => !r.remote).map((r) => this.encodeRacer(r)) });
+  }
+
+  /** 다른 사람 카트: 받은 위치로 부드럽게 따라가기 (받은 뒤 지난 시간만큼 앞으로 예측) */
+  remoteStep(r, dt) {
+    const n = r.net;
+    if (n) {
+      const age = Math.min(0.25, (performance.now() - r.netAt) / 1000);
+      const px = n.x + Math.sin(n.h + n.slip) * n.speed * age, pz = n.z + Math.cos(n.h + n.slip) * n.speed * age;
+      if (Math.hypot(px - r.x, pz - r.z) > 15) { r.x = px; r.z = pz; r.y = n.y; r.h = n.h; } // 복귀 등 순간이동
+      const k = Math.min(1, dt * 12);
+      r.x += (px - r.x) * k; r.y += (n.y - r.y) * k; r.z += (pz - r.z) * k;
+      r.h += wrapAngle(n.h - r.h) * k;
+      r.speed = n.speed; r.slip = n.slip; r.driftDir = n.dd;
+      r.drifting = n.dl > 0; r.driftT = n.dl > 1 ? DRIFT_LV[n.dl - 2] + 0.01 : 0;
+      r.gliding = !!n.gl; r.grounded = !n.gl;
+      r.boostT = n.b ? 0.3 : 0;
+      if (n.sp) { r.spinT = 0.2; r.spinA += dt * 14; } else r.spinT = 0;
+      r.shieldT = n.sh & 1 ? 1 : 0; r.invT = n.sh & 2 ? 1 : 0;
+      r.trick = !!n.tr; r.trickA = r.trick ? r.trickA + dt * 16 : 0;
+      r.idx = this.track.nearest(r.x, r.z, r.idx).i;
+    }
+    this.syncModel(r, this.driftLevel(r), dt);
+  }
+
+  spawnNetObj(d) {
+    if (!d || this.objs.some((o) => o.id === d.id)) return;
+    const mesh = buildItemMesh(d.type);
+    mesh.position.set(d.x, d.y, d.z);
+    mesh.rotation.y = d.h ?? 0;
+    this.dyn.add(mesh);
+    const owner = this.byId(d.owner) ?? { id: d.owner };
+    this.objs.push({ ...d, owner, target: d.target ? this.byId(d.target) : null, mesh, idx: this.track.nearest(d.x, d.z).i, bounces: 0 });
+  }
+
+  explode(o) {
+    for (let i = 0; i < 26; i++) this.sparks.emit(o.x, o.y + 0.8, o.z, i % 2 ? 0xf97316 : 0xfde047, (Math.random() - 0.5) * 12, Math.random() * 7, (Math.random() - 0.5) * 12, 0.6);
+  }
+
   // ---------------- 진행 단계 ----------------
   init() {
     if (this.noGL) return;
+    if (this.multi && this.pendingMulti) {
+      this.pendingMulti = false;
+      this.objs = []; this.boxes = []; this.msg = null;
+      this.clearDyn();
+      if (this.trackIdx !== this.sel.track || !this.track) this.loadTrack(this.sel.track);
+      this.startRace();
+      return;
+    }
+    if (this.multi) this.leaveMulti();
     this.phase = 'select';
     this.racers = [];
     this.objs = [];
@@ -152,22 +308,43 @@ export default class Kart extends GameBase {
     this.sound('start');
     this.clearDyn();
     this.preview = null;
-    const tr = this.track, laps = this.cfg.laps;
-    const diff = DIFF[this.cfg.difficulty] ?? DIFF.normal;
+    const tr = this.track, mp = this.multi;
+    const laps = mp ? clamp(Number(mp.settings.laps ?? 3), 1, 5) : this.cfg.laps;
+    const diff = DIFF[mp ? 'normal' : this.cfg.difficulty] ?? DIFF.normal;
     this.diff = diff;
-    // 상대는 나머지 캐릭터, 카트는 무작위
-    const others = CHARACTERS.map((_, i) => i).filter((i) => i !== this.sel.char);
-    const order = [...others.slice(0, 5), this.sel.char, ...others.slice(5)]; // 플레이어는 6번째 출발
-    this.racers = order.map((ci, slot) => {
-      const isPlayer = ci === this.sel.char;
-      const ch = CHARACTERS[ci], kart = isPlayer ? KARTS[this.sel.kart] : KARTS[Math.floor(Math.random() * KARTS.length)];
+    let roster;
+    if (mp) {
+      // 멀티: 사람(로비에서 고른 캐릭터·카트) 먼저, 빈자리는 AI (모든 사람이 같은 AI 구성을 보도록 시드 사용)
+      const rnd = seededRandom(mp.seed);
+      const idx = (v, n) => clamp(Math.floor(Number(v) || 0), 0, n - 1);
+      roster = mp.players.map((p) => ({ id: p.id, name: p.name, ci: idx(p.info?.char, CHARACTERS.length), ki: idx(p.info?.kart, KARTS.length), human: true }));
+      if (mp.settings.ai !== false) {
+        const used = new Set(roster.map((x) => x.ci));
+        const free = CHARACTERS.map((_, i) => i).filter((i) => !used.has(i));
+        for (let k = 0; roster.length < 8; k++) {
+          const ci = free.length ? free.shift() : k % CHARACTERS.length;
+          roster.push({ id: `ai${k}`, name: CHARACTERS[ci].name, ci, ki: Math.floor(rnd() * KARTS.length), human: false });
+        }
+      }
+    } else {
+      // 혼자: 상대는 나머지 캐릭터, 카트는 무작위, 플레이어는 6번째 출발
+      const others = CHARACTERS.map((_, i) => i).filter((i) => i !== this.sel.char);
+      roster = [...others.slice(0, 5), this.sel.char, ...others.slice(5)].map((ci, k) => (ci === this.sel.char
+        ? { id: 'me', name: CHARACTERS[ci].name, ci, ki: this.sel.kart, human: true }
+        : { id: `ai${k}`, name: CHARACTERS[ci].name, ci, ki: Math.floor(Math.random() * KARTS.length), human: false }));
+    }
+    this.racers = roster.map((ro, slot) => {
+      const ci = ro.ci;
+      const isPlayer = mp ? ro.id === mp.me : ro.id === 'me';
+      const remote = !!mp && (ro.human ? !isPlayer : !mp.isHost);
+      const ch = CHARACTERS[ci], kart = KARTS[ro.ki];
       const back = 7 + slot * 4.2, p = tr.at(tr.length - back);
       const y0 = p.y;
       const side = slot % 2 ? -1 : 1;
       const model = buildRacer(ch, kart);
       this.dyn.add(model.root);
       return {
-        ch, kart, isPlayer, model, stats: combineStats(ch, kart),
+        id: ro.id, name: ro.name, human: ro.human, remote, ch, kart, isPlayer, model, stats: combineStats(ch, kart),
         x: p.x + p.nx * tr.hw * 0.42 * side, z: p.z + p.nz * tr.hw * 0.42 * side, h: Math.atan2(p.tx, p.tz),
         speed: 0, y: y0, vy: 0, slip: 0, drifting: false, driftDir: 0, driftT: 0, boostT: 0, spinT: 0, spinA: 0, shieldT: 0, invT: 0,
         item: null, uses: 0, roll: 0, idx: p.i, lastD: tr.length - back, progress: -back, finished: false, finishTime: 0,
@@ -274,6 +451,7 @@ export default class Kart extends GameBase {
 
     this.raceT += dt;
     for (const r of this.racers) {
+      if (r.remote) { this.remoteStep(r, dt); continue; }
       const inp = r.isPlayer && !r.finished ? this.playerInput() : this.aiInput(r, dt);
       this.physics(r, inp, dt);
       r.hopReq = false;
@@ -281,17 +459,20 @@ export default class Kart extends GameBase {
     this.collideRacers();
     this.updateObjects(dt);
     this.updateRanks();
+    if (this.multi) this.netTick(dt);
     this.updateCamera(dt, false);
 
     if (this.phase === 'race' && this.player.finished) {
+      this.sendState(); // 골인 사실을 바로 알림
       this.phase = 'finish';
-      this.finishWait = 4;
+      this.finishWait = this.multi ? 30 : 4; // 멀티는 다른 사람들 골인을 기다림
       this.sound('levelup');
       this.msg = { text: `골인! ${this.player.rank}위`, t: 3 };
     }
     if (this.phase === 'finish') {
       this.finishWait -= dt;
-      if (this.finishWait <= 0 || this.racers.every((r) => r.finished)) this.endRace();
+      const waitFor = this.multi ? this.racers.filter((r) => r.human) : this.racers;
+      if (this.finishWait <= 0 || waitFor.every((r) => r.finished)) this.endRace();
     }
   }
 
@@ -513,6 +694,7 @@ export default class Kart extends GameBase {
       if (b.respawn > 0 || (r.x - b.x) ** 2 + (r.z - b.z) ** 2 > 3.2 || Math.abs(r.y - b.y) > 2.5) continue;
       b.respawn = 2.2; b.mesh.visible = false;
       this.sparks.emit(b.x, b.y + 1.2, b.z, 0xfde047, 0, 4, 0, 0.5);
+      if (this.multi) this.multi.net.relay({ k: 'box', i: this.boxes.indexOf(b) });
       if (!r.item && r.roll <= 0) { r.roll = 1.1; if (r.isPlayer) this.sound('power'); }
     }
     if (r.roll > 0) {
@@ -712,6 +894,10 @@ export default class Kart extends GameBase {
       mesh.rotation.y = r.h;
       this.dyn.add(mesh);
       this.objs.push(o);
+      if (this.multi) {
+        o.id = `${this.multi.me}:${this.multi.seq++}`;
+        this.multi.net.relay({ k: 'obj', o: { id: o.id, type: kind, x: r2(o.x), y: r2(o.y), z: r2(o.z), h: r2(r.h), vx: o.vx, vz: o.vz, life: o.life, arm: o.arm, owner: r.id, target: o.target?.id } });
+      }
       return o;
     };
     switch (type) {
@@ -775,16 +961,18 @@ export default class Kart extends GameBase {
       }
       for (const r of this.racers) {
         if (o.life <= 0) break;
+        if (r.remote) continue; // 다른 사람 카트의 충돌은 그 사람 화면에서 판정
         if (r === o.owner && o.arm > 0) continue;
         const rad = o.type === 'oil' ? 1.9 : o.type === 'mine' ? 1.6 : 1.7;
         if ((r.x - o.x) ** 2 + (r.z - o.z) ** 2 > rad * rad || Math.abs(r.y - o.y) > 1.5 || r.respawnT > 0) continue;
         if (o.type !== 'oil' || r.invT <= 0) this.hitRacer(r, o.type);
         if (o.type === 'mine' || o.type === 'rocket' || o.type === 'homing') {
-          for (let i = 0; i < 26; i++) this.sparks.emit(o.x, o.y + 0.8, o.z, i % 2 ? 0xf97316 : 0xfde047, (Math.random() - 0.5) * 12, Math.random() * 7, (Math.random() - 0.5) * 12, 0.6);
-          for (const q of this.racers) if (q !== r && o.type === 'mine' && (q.x - o.x) ** 2 + (q.z - o.z) ** 2 < 12) this.hitRacer(q, 'mine');
+          this.explode(o);
+          for (const q of this.racers) if (q !== r && !q.remote && o.type === 'mine' && (q.x - o.x) ** 2 + (q.z - o.z) ** 2 < 12) this.hitRacer(q, 'mine');
           if (r.isPlayer || o.owner.isPlayer) this.sound('drop');
         }
         o.life = 0;
+        if (this.multi && o.id) this.multi.net.relay({ k: 'hit', id: o.id });
       }
     }
     for (const o of this.objs) if (o.life <= 0) this.dyn.remove(o.mesh);
@@ -795,10 +983,23 @@ export default class Kart extends GameBase {
     const rs = this.racers;
     for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) {
       const a = rs[i], b = rs[j];
+      if (a.remote && b.remote) continue;
       const dx = b.x - a.x, dz = b.z - a.z, d2 = dx * dx + dz * dz;
       if (d2 > 4.4 || Math.abs(a.y - b.y) > 1.2) continue;
       const d = Math.sqrt(d2) || 0.01, ov = 2.1 - d, nx = dx / d, nz = dz / d;
       if (ov <= 0) continue;
+      if (a.remote || b.remote) { // 다른 사람 카트와 부딪힘: 내 카트만 밀려남, 슈퍼 터보는 상대에게 알림
+        const loc = a.remote ? b : a, rem = a.remote ? a : b, sg = loc === a ? -1 : 1;
+        if (loc.invT > 0 && rem.invT <= 0) {
+          const key = rem.id, now = performance.now();
+          if (!(this.multi.bumpAt[key] > now - 1000)) { this.multi.bumpAt[key] = now; this.multi.net.relay({ k: 'bump', to: rem.id }); }
+          continue;
+        }
+        if (rem.invT > 0 && loc.invT <= 0) { this.hitRacer(loc, 'turbo'); continue; }
+        loc.x += nx * ov * sg; loc.z += nz * ov * sg;
+        if (loc.isPlayer) this.sound('bounce');
+        continue;
+      }
       // 슈퍼 터보는 부딪힌 상대를 날려버림
       if (a.invT > 0 && b.invT <= 0) { this.hitRacer(b, 'turbo'); continue; }
       if (b.invT > 0 && a.invT <= 0) { this.hitRacer(a, 'turbo'); continue; }
@@ -826,7 +1027,16 @@ export default class Kart extends GameBase {
     this.results = this.order.map((r) => ({ name: `${r.ch.emoji} ${r.ch.name}`, time: r.finished ? fmt(r.finishTime) : '--:--', me: r.isPlayer }));
     const best = p.lapTimes.length ? Math.min(...p.lapTimes) : 0;
     this.setScore(RANK_POINTS[p.rank - 1] + Math.max(0, Math.round(300 - this.raceT)));
-    this.gameOver(p.rank === 1 ? '🏆 우승!' : `${p.rank}위 골인`, `${this.track.def.name} · 기록 ${p.finished ? fmt(p.finishTime) : '--'} · 베스트 랩 ${best ? fmt(best) : '--'}`);
+    const stats = `${this.track.def.name} · 기록 ${p.finished ? fmt(p.finishTime) : '--'} · 베스트 랩 ${best ? fmt(best) : '--'}`;
+    if (this.multi) {
+      const humans = this.order.filter((r) => r.human);
+      const myPlace = humans.indexOf(p) + 1;
+      this.sendState(); // 마지막 상태 전송 (다른 사람이 내 골인을 기다리지 않게)
+      if (this.multi.net.isHost) this.multi.net.end();
+      this.leaveMulti();
+      return this.gameOver(myPlace === 1 ? '🏆 우승!' : `${p.rank}위 골인`, `${stats} · 사람 중 ${myPlace}/${humans.length}등`, { multi: true });
+    }
+    this.gameOver(p.rank === 1 ? '🏆 우승!' : `${p.rank}위 골인`, stats);
   }
 
   // ---------------- 카메라 ----------------
@@ -974,6 +1184,7 @@ export default class Kart extends GameBase {
       shadowText(lvl ? TURBO_NAMES[lvl].replace('!', ' 준비') : '드리프트 중…', W - 16, gy - 8, '800 12px system-ui, sans-serif', lvl ? hex(SPARK_COLORS[lvl]) : '#fff', 'right');
     }
     if (p.gliding) shadowText('🪂 활공 중 - ←→로 방향 조절', W / 2, H - 20, '800 13px system-ui, sans-serif', '#bae6fd', 'center');
+    this.drawNameTags(ctx);
     this.drawMinimap(ctx);
     // 중앙 메시지 / 카운트다운
     if (this.phase === 'countdown') {
@@ -989,7 +1200,7 @@ export default class Kart extends GameBase {
     if (p.wrongT > 0.8 && this.phase === 'race') shadowText('⚠ 역주행!', W / 2, 110, '900 26px system-ui, sans-serif', '#f87171', 'center');
     // 결과표
     if (this.phase === 'finish' || this.phase === 'done') {
-      const list = this.order.map((r) => ({ name: `${r.ch.emoji} ${r.ch.name}`, time: r.finished ? fmt(r.finishTime) : '주행 중', me: r.isPlayer }));
+      const list = this.order.map((r) => ({ name: `${r.ch.emoji} ${r.human ? r.name : r.ch.name}`, time: r.finished ? fmt(r.finishTime) : '주행 중', me: r.isPlayer }));
       ctx.fillStyle = 'rgba(10,12,20,.75)'; roundRect(ctx, W - 210, 70, 196, 30 + list.length * 22, 12);
       list.forEach((r, i) => {
         const y = 94 + i * 22;
@@ -1000,6 +1211,25 @@ export default class Kart extends GameBase {
       });
     }
     ctx.restore();
+  }
+
+  /** 다른 사람(멀티) 카트 위에 이름표 */
+  drawNameTags(ctx) {
+    const v = this.tagVec ??= new THREE.Vector3();
+    for (const r of this.racers) {
+      if (!r.human || r.isPlayer || r.id === 'me') continue;
+      v.set(r.x, r.y + 3.1, r.z).project(this.camera3);
+      if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) continue;
+      const x = (v.x + 1) / 2 * W, y = (1 - v.y) / 2 * H;
+      const dist = Math.hypot(r.x - this.player.x, r.z - this.player.z);
+      if (dist > 120) continue;
+      ctx.font = '800 12px system-ui, sans-serif'; ctx.textAlign = 'center';
+      const tw = ctx.measureText(r.name).width + 12;
+      ctx.fillStyle = 'rgba(15,23,42,.7)'; roundRect(ctx, x - tw / 2, y - 16, tw, 18, 9);
+      ctx.fillStyle = hex(r.ch.kartColor === 0x111827 ? 0xe5e7eb : r.ch.kartColor); ctx.fillText(r.name, x, y - 3);
+      ctx.textAlign = 'start';
+    }
+    // 미니맵에서도 사람은 크게
   }
 
   drawMinimap(ctx) {
@@ -1020,7 +1250,7 @@ export default class Kart extends GameBase {
     for (const r of [...this.racers].reverse()) {
       const x = cx + (r.x - m.ox) * m.s, y = cy + (r.z - m.oz) * m.s;
       ctx.fillStyle = hex(r.ch.kartColor);
-      ctx.beginPath(); ctx.arc(x, y, r.isPlayer ? 5 : 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, r.isPlayer ? 5 : r.human ? 4.5 : 3, 0, Math.PI * 2); ctx.fill();
       if (r.isPlayer) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
     }
   }

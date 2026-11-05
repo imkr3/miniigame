@@ -1,0 +1,12 @@
+{
+  "name": "miniigame",
+  "private": true,
+  "type": "module",
+  "description": "브라우저 미니게임 모음 + 멀티플레이 서버",
+  "scripts": {
+    "server": "node server/server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

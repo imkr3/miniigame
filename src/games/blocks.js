@@ -19,7 +19,19 @@ const SHAPES = [
 ];
 const NAMES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
 const T = 2, O = 1, I = 0;
-const COLORS = ['#38bdf8', '#facc15', '#c084fc', '#4ade80', '#f87171', '#60a5fa', '#fb923c'];
+const COLORS = ['#38bdf8', '#facc15', '#c084fc', '#4ade80', '#f87171', '#60a5fa', '#fb923c', '#6b7280']; // 마지막 = 쓰레기 줄
+const GARBAGE = 7;
+// ---- 멀티플레이(배틀) ----
+const OPP_W = 156;                                     // 상대 보드 패널 폭
+const LINE_ATK = [0, 0, 1, 2, 4];                      // 일반 클리어 공격량
+const SPIN_ATK = [0, 2, 4, 6, 8];                      // 스핀
+const MINI_ATK = [0, 0, 1, 2, 2];                      // 스핀 미니
+const COMBO_ATK = [0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5];
+/** 같은 시드면 같은 블록 순서 (모두 공평하게) */
+function seededRandom(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
 
 // SRS 킥 테이블 (x 오른쪽 +, y 위쪽 +). 키 = "회전 전 상태 → 회전 후 상태"
 const KICKS_JLSTZ = {
@@ -108,18 +120,170 @@ export default class Blocks extends GameBase {
   };
   static gestures = { tap: 'up', left: 'left', right: 'right', down: 'down', up: 'hold' };
 
+  static multiplayer = { min: 2, max: 8, label: '블록 배틀' };
+
   constructor(container, opts = {}) {
     super(container, { width: BW + SIDE, height: ROWS * CELL, ...opts });
   }
 
+  // ---------------- 멀티플레이 (배틀) ----------------
+  lobbyConfig() {
+    return {
+      settings: [{ id: 'startLevel', label: '시작 레벨 (낙하 속도)', type: 'range', min: 1, max: 15, default: 3 }],
+      info: [],
+    };
+  }
+
+  startMulti(net, start) {
+    this.leaveMulti();
+    const me = net.id;
+    this.multi = {
+      net, me, seed: start.seed, settings: start.settings ?? {}, dead: false, place: 0, over: false,
+      players: start.players,
+      opp: new Map(start.players.filter((p) => p.id !== me).map((p) => [p.id, { name: p.name, board: '', alive: true, place: 0, lines: 0 }])),
+      alive: new Set(start.players.map((p) => p.id)),
+    };
+    this.mpView = this.multi;
+    this.offNet = [net.on('msg', (from, d) => this.onNet(from, d)), net.on('left', (id) => this.playerDied(id))];
+    this.noAutoPause = true;
+    if (this.width !== BW + SIDE + OPP_W) { this.width = BW + SIDE + OPP_W; this._layout(); }
+    this.start();
+  }
+
+  leaveMulti() {
+    this.offNet?.forEach((off) => off());
+    this.offNet = null;
+    this.multi = null;
+    this.noAutoPause = false;
+  }
+
+  onNetClosed() { if (this.multi && !this.multi.over) this.endMulti(); }
+
+  onNet(from, d) {
+    const m = this.multi;
+    if (!m || !d) return;
+    const o = m.opp.get(from);
+    if (d.k === 'board' && o) { o.board = d.b; o.lines = d.l; o.incoming = d.g; }
+    else if (d.k === 'atk' && !m.dead && !m.over) {
+      this.incoming.push({ n: d.n, t: 0.6, from });
+      this.sound('hit');
+      this.floatText(BW / 2, 40, `${o?.name ?? '?'} 님의 공격 ${d.n}줄!`, '#fca5a5', 14);
+    } else if (d.k === 'dead') this.playerDied(from);
+  }
+
+  /** 줄 공격 보내기: 살아 있는 상대 중 무작위 한 명 */
+  sendAttack(n) {
+    const m = this.multi;
+    const targets = [...m.opp.entries()].filter(([, o]) => o.alive);
+    if (!targets.length) return;
+    const [id, o] = targets[Math.floor(Math.random() * targets.length)];
+    m.net.relay({ k: 'atk', n, to: id });
+    this.stats.sent = (this.stats.sent ?? 0) + n;
+    this.floatText(BW / 2, 70, `→ ${o.name} 에게 ${n}줄 공격!`, '#86efac', 14);
+  }
+
+  /** 받은 쓰레기 줄을 아래에서 밀어 올림 (구멍은 묶음마다 한 칸) */
+  applyGarbage() {
+    let budget = 12;
+    while (this.incoming.length && this.incoming[0].t <= 0 && budget > 0) {
+      const g = this.incoming[0];
+      const k = Math.min(g.n, budget);
+      const hole = Math.floor(Math.random() * COLS);
+      for (let i = 0; i < k; i++) {
+        const top = this.board.shift();
+        if (top.some((c) => c >= 0)) this.overflow = true;
+        const row = Array(COLS).fill(GARBAGE); row[hole] = -1;
+        this.board.push(row);
+      }
+      g.n -= k; budget -= k;
+      if (g.n <= 0) this.incoming.shift();
+      this.shake(3, 0.15);
+    }
+  }
+
+  encodeBoard() {
+    const b = this.board.map((r) => r.map((c) => (c < 0 ? '.' : c)).join(''));
+    const p = this.piece;
+    if (p) p.shape.forEach((row, y) => row.forEach((v, x) => {
+      const yy = p.y + y; if (v && yy >= 0 && yy < ROWS) b[yy] = b[yy].slice(0, p.x + x) + p.type + b[yy].slice(p.x + x + 1);
+    }));
+    return b.join('');
+  }
+
+  netTick(dt) {
+    const m = this.multi;
+    for (const g of this.incoming) g.t -= dt;
+    this.sendT = (this.sendT ?? 0) + dt;
+    if (this.sendT >= 0.25 && !m.dead) {
+      this.sendT = 0;
+      m.net.relay({ k: 'board', b: this.encodeBoard(), l: this.lines, g: this.incoming.reduce((a, g) => a + g.n, 0) });
+    }
+  }
+
+  /** 꼭대기까지 쌓임 */
+  topOut() {
+    if (!this.multi) return this.gameOver('게임 오버', this.statsText());
+    const m = this.multi;
+    if (m.dead) return;
+    m.dead = true;
+    m.place = m.alive.size;
+    m.alive.delete(m.me);
+    this.piece = null;
+    m.net.relay({ k: 'dead' });
+    this.sound('over');
+    this.shake(8);
+    this.checkEnd();
+  }
+
+  playerDied(id) {
+    const m = this.multi;
+    if (!m || !m.alive.has(id)) return;
+    const o = m.opp.get(id);
+    if (o) { o.alive = false; o.place = m.alive.size; }
+    m.alive.delete(id);
+    if (o && !m.over) this.floatText(BW / 2, 100, `${o.name} 탈락!`, '#fde68a', 16);
+    this.checkEnd();
+  }
+
+  checkEnd() {
+    const m = this.multi;
+    if (m.over || m.alive.size > 1) return;
+    if (m.alive.has(m.me)) m.place = 1;
+    else for (const [id, o] of m.opp) if (m.alive.has(id)) o.place = 1;
+    this.endMulti();
+  }
+
+  endMulti() {
+    const m = this.multi;
+    m.over = true;
+    if (!m.place) m.place = m.alive.size || 1;
+    if (m.net.isHost) m.net.end();
+    const total = m.players.length;
+    this.setScore(Math.round((total - m.place + 1) / total * 1000) + (this.stats.sent ?? 0) * 10);
+    this.leaveMulti();
+    this.mpView = m;
+    this.gameOver(m.place === 1 ? '🏆 승리!' : `${m.place}위`, `${total}명 배틀 · 보낸 공격 ${this.stats.sent ?? 0}줄 · ${this.lines}줄 · ${fmtTime(this.time)}`, { multi: true });
+  }
+
+  restart() { if (this.multi) return; super.restart(); }
+
   init() {
+    if (!this.multi) {
+      this.mpView = null;
+      if (this.width !== BW + SIDE) { this.width = BW + SIDE; this._layout(); }
+    }
+    this.rand = this.multi ? seededRandom(this.multi.seed) : Math.random;
+    this.incoming = [];
+    this.overflow = false;
+    this.countdown = this.multi ? 3 : 0;
     this.board = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
     this.bag = [];
     this.queue = Array.from({ length: 5 }, () => this.pull());
     this.holdType = -1;
     this.canHold = true;
     this.lines = 0;
-    this.level = this.cfg.startLevel;
+    this.startLevel = this.multi ? (this.multi.settings.startLevel ?? 3) : this.cfg.startLevel;
+    this.level = this.startLevel;
     this.gravityT = 0;
     this.shift = null;     // 좌우 연속 이동 상태
     this.softT = 0;
@@ -137,7 +301,7 @@ export default class Blocks extends GameBase {
     if (!this.bag.length) {
       this.bag = [0, 1, 2, 3, 4, 5, 6];
       for (let i = this.bag.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(this.rand() * (i + 1));
         [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
       }
     }
@@ -152,7 +316,7 @@ export default class Blocks extends GameBase {
     this.lockResets = 0;
     this.lowestY = this.piece.y;
     this.lastMove = null;
-    if (this.collides(shape, this.piece.x, this.piece.y)) this.gameOver('게임 오버', this.statsText());
+    if (this.collides(shape, this.piece.x, this.piece.y) || this.overflow) this.topOut();
   }
 
   collides(shape, px, py) {
@@ -237,7 +401,7 @@ export default class Blocks extends GameBase {
       if (v && p.y + y >= 0) this.board[p.y + y][p.x + x] = p.type;
     }));
     this.stats.pieces++;
-    if (p.shape.some((row, y) => row.some((v) => v && p.y + y < 0))) return this.gameOver('게임 오버', this.statsText());
+    if (p.shape.some((row, y) => row.some((v) => v && p.y + y < 0))) return this.topOut();
 
     const full = [];
     this.board.forEach((row, y) => { if (row.every((c) => c >= 0)) full.push(y); });
@@ -272,6 +436,7 @@ export default class Blocks extends GameBase {
       if (gained) this.addScore(gained);
       this.sound(spin ? 'spin' : 'lock');
       if (spin) this.floatText((p.x + p.shape[0].length / 2) * CELL, p.y * CELL, `+${gained}`, COLORS[p.type]);
+      if (this.multi) this.applyGarbage(); // 줄을 못 지우면 쌓여 있던 쓰레기 줄이 올라옴
       this.spawn();
       return;
     }
@@ -280,9 +445,23 @@ export default class Blocks extends GameBase {
       for (let x = 0; x < COLS; x++)
         this.burst((x + 0.5) * CELL, (y + 0.5) * CELL, { color: COLORS[this.board[y][x]], count: spin ? 5 : 3, speed: 160, life: 0.5 });
     const after = this.board.filter((_, y) => !full.includes(y));
-    if (after.every((row) => row.every((c) => c < 0))) { // 판을 완전히 비우면 보너스
+    const perfect = after.every((row) => row.every((c) => c < 0));
+    if (perfect) { // 판을 완전히 비우면 보너스
       gained += 2000 * this.level;
       this.callout = { text: '퍼펙트 클리어!', sub: title, color: '#f0abfc', t: 1.8 };
+    }
+    if (this.multi) {
+      // 공격량 = 줄 수 기본값 (스핀·B2B·콤보·퍼펙트 클리어 보너스), 받을 공격부터 상쇄
+      let atk = spin ? (spin.mini ? MINI_ATK[n] : SPIN_ATK[n]) : LINE_ATK[n];
+      if (b2bText) atk += 1;
+      atk += COMBO_ATK[Math.min(Math.max(0, this.combo), COMBO_ATK.length - 1)];
+      if (perfect) atk += 10;
+      while (atk > 0 && this.incoming.length) {
+        const g = this.incoming[0], c = Math.min(g.n, atk);
+        g.n -= c; atk -= c;
+        if (g.n <= 0) this.incoming.shift();
+      }
+      if (atk > 0) this.sendAttack(atk);
     }
     this.addScore(gained);
     const comboText = this.combo > 0 ? ` ${this.combo}콤보` : '';
@@ -294,7 +473,7 @@ export default class Blocks extends GameBase {
     this.clearing = { rows: full, t: 0.18 };
     this.piece = null;
     this.lines += n;
-    const newLevel = this.cfg.startLevel + Math.floor(this.lines / this.cfg.linesPerLevel);
+    const newLevel = this.startLevel + Math.floor(this.lines / this.cfg.linesPerLevel);
     if (newLevel > this.level) {
       this.level = newLevel;
       this.sound('levelup');
@@ -325,7 +504,8 @@ export default class Blocks extends GameBase {
   }
 
   onAction(action, repeat) {
-    if (repeat || !this.piece) return; // 키 반복은 OS 대신 update의 DAS/ARR로 처리
+    if (repeat || !this.piece) return;
+    if (this.multi && (this.countdown > 0 || this.multi.dead)) return; // 키 반복은 OS 대신 update의 DAS/ARR로 처리
     const das = this.cfg.das / 1000;
     if (action === 'left' || action === 'right') {
       const dx = action === 'left' ? -1 : 1;
@@ -357,6 +537,16 @@ export default class Blocks extends GameBase {
   }
 
   update(dt) {
+    if (this.multi) {
+      this.netTick(dt);
+      if (this.countdown > 0) {
+        const before = Math.ceil(this.countdown);
+        this.countdown -= dt;
+        if (Math.ceil(this.countdown) < before) this.sound(this.countdown <= 0 ? 'start' : 'tick');
+        return;
+      }
+      if (this.multi.dead) return;
+    }
     if (this.callout && (this.callout.t -= dt) <= 0) this.callout = null;
     if (this.dropTrail && (this.dropTrail.t -= dt) <= 0) this.dropTrail = null;
     if (this.clearing) {
@@ -521,6 +711,60 @@ export default class Blocks extends GameBase {
     ctx.font = '800 12px system-ui, sans-serif';
     if (this.b2b > 0) { ctx.fillStyle = '#facc15'; ctx.fillText(`B2B ×${this.b2b}`, cx, 452); }
     if (this.combo > 0) { ctx.fillStyle = '#4ade80'; ctx.fillText(`${this.combo} 콤보`, cx, 470); }
+    ctx.textAlign = 'start';
+    if (this.mpView) this.drawBattle(ctx);
+  }
+
+  drawBattle(ctx) {
+    const m = this.mpView;
+    // 받을 공격 게이지 (보드 오른쪽 가장자리, 빨강 = 곧 올라옴)
+    const pending = (this.incoming ?? []).reduce((a, g) => a + g.n, 0);
+    if (pending > 0) {
+      const h = Math.min(ROWS, pending) * CELL;
+      const ready = this.incoming.some((g) => g.t <= 0);
+      ctx.fillStyle = ready && Math.floor(performance.now() / 150) % 2 ? '#fecaca' : '#ef4444';
+      ctx.fillRect(BW + 1, ROWS * CELL - h, 6, h);
+    }
+    // 카운트다운 / 탈락 표시
+    ctx.textAlign = 'center';
+    if (this.countdown > 0 && this.state === 'playing') {
+      ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, 0, BW, ROWS * CELL);
+      ctx.fillStyle = '#fde68a'; ctx.font = '900 72px system-ui, sans-serif';
+      ctx.fillText(Math.ceil(this.countdown), BW / 2, ROWS * CELL / 2 + 24);
+      ctx.font = '700 14px system-ui, sans-serif'; ctx.fillStyle = '#fff';
+      ctx.fillText(`${m.players.length}명 배틀!`, BW / 2, ROWS * CELL / 2 + 60);
+    } else if (m.dead) {
+      ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0, 0, BW, ROWS * CELL);
+      ctx.fillStyle = '#fca5a5'; ctx.font = '900 28px system-ui, sans-serif';
+      ctx.fillText(`탈락 · ${m.place}위`, BW / 2, ROWS * CELL / 2);
+      if (!m.over) { ctx.fillStyle = '#e5e7eb'; ctx.font = '700 13px system-ui, sans-serif'; ctx.fillText('다른 사람들 관전 중…', BW / 2, ROWS * CELL / 2 + 28); }
+    }
+    // 상대 보드 (2열)
+    const x0 = BW + SIDE + 6, mc = 5, bw = COLS * mc, bh = ROWS * mc;
+    ctx.fillStyle = '#0f1119'; ctx.fillRect(BW + SIDE, 0, OPP_W, ROWS * CELL);
+    let i = 0;
+    for (const [, o] of m.opp) {
+      const col = i % 2, row = Math.floor(i / 2);
+      const x = x0 + col * (bw + 22), y = 6 + row * (bh + 20);
+      if (y + bh > ROWS * CELL) break;
+      ctx.fillStyle = '#e5e7eb'; ctx.font = '700 10px system-ui, sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText(o.name.slice(0, 7), x, y + 8);
+      ctx.fillStyle = '#151924'; ctx.fillRect(x, y + 12, bw, bh);
+      const b = o.board;
+      for (let k = 0; k < b.length; k++) {
+        const c = b[k];
+        if (c === '.') continue;
+        ctx.fillStyle = COLORS[Number(c)] ?? '#888';
+        ctx.fillRect(x + (k % COLS) * mc, y + 12 + Math.floor(k / COLS) * mc, mc - 0.5, mc - 0.5);
+      }
+      if (o.incoming > 0) { ctx.fillStyle = '#ef4444'; const gh = Math.min(ROWS, o.incoming) * mc; ctx.fillRect(x + bw + 1, y + 12 + bh - gh, 3, gh); }
+      if (!o.alive) {
+        ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(x, y + 12, bw, bh);
+        ctx.fillStyle = '#fca5a5'; ctx.font = '900 14px system-ui, sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(o.place === 1 ? '🏆' : `${o.place}위`, x + bw / 2, y + 12 + bh / 2 + 5);
+      }
+      i++;
+    }
     ctx.textAlign = 'start';
   }
 }

@@ -185,6 +185,8 @@ export class GameBase {
   static actionLabels = {};
   /** 게임 설정 항목: [{ id, label, type: 'range'|'toggle'|'select', default, min, max, step, unit, options: [[값, 이름]], tip }] */
   static settings = [];
+  /** 멀티플레이 지원 시 { min, max, label } (게임은 lobbyConfig()/startMulti() 구현) */
+  static multiplayer = null;
   /** 모바일 가상 패드: left = 'dpad' | 'lr' | null, buttons = [{ action, label, primary?, wide? }] */
   static pad = { left: 'dpad', buttons: [] };
   /** 터치 제스처 → 액션 (null 이면 무시) */
@@ -203,7 +205,9 @@ export class GameBase {
    * @param {(e:object)=>void} [opts.onEvent]
    * @param {()=>void} [opts.onExit] 지정하면 HUD 왼쪽에 '나가기' 버튼 표시
    */
-  constructor(container, { width, height, fit = false, maxWidth, controls = 'auto', onEvent, onExit } = {}) {
+  constructor(container, opts = {}) {
+    const { width, height, fit = false, maxWidth, controls = 'auto', onEvent, onExit } = opts;
+    this.opts = opts; // server: 멀티플레이 서버 주소 등
     injectStyle();
     const C = this.constructor;
     this.meta = C.meta;
@@ -275,14 +279,15 @@ export class GameBase {
   shake(amount = 6, time = 0.25) { if (this.cfg.shake) this._shake = { t: time, max: time, amount }; }
 
   /** @param {string} [stats] 게임오버 화면에 덧붙일 통계 문구 */
-  gameOver(title = '게임 오버', stats = '') {
+  gameOver(title = '게임 오버', stats = '', { multi = false } = {}) {
     if (this.state === 'over') return;
     this.state = 'over';
     this.keys.clear();
     this._overAt = performance.now();
-    const isBest = this.score > this.best;
+    // 멀티플레이 결과는 혼자 하기 기록(최고 점수·TOP 5)에 넣지 않음
+    const isBest = !multi && this.score > this.best;
     if (isBest) { this.best = this.score; storage.set(this.bestKey, this.best); }
-    const { top, rank } = this.score > 0 ? pushTop(this.meta.id, this.score) : { top: getTop(this.meta.id), rank: -1 };
+    const { top, rank } = this.score > 0 && !multi ? pushTop(this.meta.id, this.score) : { top: multi ? [] : getTop(this.meta.id), rank: -1 };
     this._renderHud();
     this.sound('over');
     this.vibrate(120);
@@ -293,7 +298,7 @@ export class GameBase {
     }).join('')}</ol>` : '';
     const badge = isBest && this.score > 0 ? '<div class="mg-new">🏆 최고 기록!</div>'
       : rank >= 0 ? `<div class="mg-new">${rank + 1}위 기록!</div>` : '';
-    this._showOverlay(title, `<div class="mg-big">${this.score}</div>${badge}${stats ? `<p class="mg-stats">${esc(stats)}</p>` : ''}${list}`, 'restart');
+    this._showOverlay(title, `<div class="mg-big">${this.score}</div>${badge}${stats ? `<p class="mg-stats">${esc(stats)}</p>` : ''}${list}`, multi ? 'multi-end' : 'restart');
     this._emit('gameover', { score: this.score, best: this.best, newBest: isBest });
   }
 
@@ -325,12 +330,20 @@ export class GameBase {
     this._emit('resume');
   }
   togglePause() { this.state === 'playing' ? this.pause() : this.resume(); }
+  /** 멀티플레이 로비 열기 (필요할 때만 불러옴) */
+  async openLobby() {
+    if (!this.constructor.multiplayer) return;
+    if (!this.lobby) { const { Lobby } = await import('./net/lobby.js'); this.lobby = new Lobby(this); }
+    this.lobby.open();
+  }
+
   /** 진행 중인 판을 버리고 새로 시작 */
   restart() { this.keys.clear(); this._emit('restart'); this.start(); }
   toggleMute() { sfx.setMuted(!sfx.muted); this._renderButtons(); }
   destroy() {
     cancelAnimationFrame(this._raf);
     this.onDestroy();
+    this.net?.close();
     this._ro?.disconnect();
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
@@ -369,6 +382,7 @@ export class GameBase {
       <div class="mg-pad"></div>`;
     container.appendChild(root);
     this.root = root;
+    root.mgGame = this; // 디버그·테스트용 핸들 (document.querySelector('.mg-root').mgGame)
     const $ = (s) => root.querySelector(s);
     this.$score = $('.mg-score');
     this.$best = $('.mg-best');
@@ -623,16 +637,19 @@ export class GameBase {
   }
 
   _hintText(kind) {
+    if (kind === 'multi-end') return this.touchMode ? '' : 'Space = 혼자 하기';
     if (this.touchMode) return kind === 'resume' ? '' : '화면 아무 곳이나 탭해도 시작돼요';
     return { start: 'Space 키로 시작', restart: 'Space 다시 시작', resume: 'Space 계속 · R 처음부터' }[kind];
   }
 
   _showOverlay(title, body, kind) {
     this._overlayKind = kind;
+    const mp = this.constructor.multiplayer;
     const buttons = {
-      start: [['시작', 'action', true]],
-      restart: [['다시 시작', 'action', true]],
+      start: [['시작', 'action', true], ...(mp ? [['🌐 멀티플레이', 'multi', false]] : [])],
+      restart: [['다시 시작', 'action', true], ...(mp ? [['🌐 멀티플레이', 'multi', false]] : [])],
       resume: [['계속', 'action', true], ['처음부터', 'restart', false]],
+      'multi-end': [['🌐 방으로 돌아가기', 'multi', true], ['혼자 하기', 'action', false]],
     }[kind];
     this.$overlay.innerHTML = `<h2></h2>${body.replace('{{controls}}', '<p class="mg-ctrl"></p>')}
       <div class="mg-actions">${buttons.map(([label, act, primary]) =>
@@ -646,7 +663,11 @@ export class GameBase {
       // 버튼 누름이 화면 탭 제스처로 중복 처리되지 않도록 전파 차단
       b.addEventListener('pointerdown', (e) => { e.stopPropagation(); sfx.unlock(); activeGame = this; });
       b.addEventListener('pointerup', (e) => e.stopPropagation());
-      b.addEventListener('click', (e) => { e.stopPropagation(); this._press(b.dataset.act); });
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (b.dataset.act === 'multi') this.openLobby();
+        else this._press(b.dataset.act);
+      });
     });
     this.$overlay.hidden = false;
     this._renderButtons();
@@ -677,6 +698,7 @@ export class GameBase {
     this._onKeyDown = (e) => {
       if (activeGame !== this) return;
       if (this.$settings) return this._settingsKey(e);
+      if (this.lobbyOpen) { if (e.code === 'Escape' && !e.target.closest?.('input')) this.lobby.close(); return; }
       // 버튼에 포커스가 남아 있으면 Enter/Space가 그 버튼을 다시 눌러버림 (예: 목록 카드 → 게임 재시작) → 차단
       if ((e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') && e.target.closest?.('button,a,[role=button]')) {
         e.preventDefault();
@@ -697,8 +719,9 @@ export class GameBase {
       if (this.root.contains(e.target)) activeGame = this;
       else if (activeGame === this) { activeGame = null; this.keys.clear(); }
     };
-    this._onVisibility = () => { if (document.hidden) this.pause(); };
-    this._onBlur = () => { this.pause(); this.keys.clear(); };
+    // 멀티플레이 중(noAutoPause)에는 다른 창으로 가도 멈추지 않음
+    this._onVisibility = () => { if (document.hidden && !this.noAutoPause) this.pause(); };
+    this._onBlur = () => { if (!this.noAutoPause) this.pause(); this.keys.clear(); };
 
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
