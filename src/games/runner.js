@@ -88,7 +88,7 @@ export default class Runner extends GameBase {
 
   constructor(container, opts = {}) {
     super(container, { width: W, height: H, ...opts });
-    this.$screen.addEventListener('pointerup', () => { this.pointerStamp = performance.now(); });
+    this.$screen.addEventListener('pointerdown', () => { this.pointerStamp = performance.now(); }); // 엔진의 탭 처리(pointerup)보다 먼저 기록
   }
 
   // ---------------- 게임 진행 ----------------
@@ -403,7 +403,7 @@ export default class Runner extends GameBase {
     else if (/^pick[123]$/.test(action)) { const i = Number(action.slice(4)) - 1; if (i < ch.cards.length) this.pickAugment(i); }
     else if (action === 'action' || action === 'attack') {
       // 탭/클릭이면 누른 카드, 키보드면 선택된 카드
-      if (performance.now() - (this.pointerStamp ?? 0) < 300) {
+      if (performance.now() - (this.pointerStamp ?? 0) < 700) {
         const i = this.cardAt(this.pointer.x, this.pointer.y);
         if (i >= 0) this.pickAugment(i);
       } else this.pickAugment(ch.cursor);

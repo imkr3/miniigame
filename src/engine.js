@@ -84,7 +84,8 @@ const CSS = `
 .mg-stage{position:relative;display:flex;align-items:center;justify-content:center;background:var(--mg-bg);overflow:hidden}
 .mg-fit .mg-stage{flex:1;min-height:0}
 .mg-screen{position:relative;flex:none}
-.mg-screen canvas{display:block;width:100%;height:100%;touch-action:none}
+.mg-screen canvas{display:block;width:100%;height:100%;touch-action:none;position:relative}
+.mg-screen canvas.mg-3d{position:absolute;inset:0}
 .mg-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
   text-align:center;background:rgba(9,10,15,.78);padding:16px;backdrop-filter:blur(2px);cursor:pointer;animation:mg-fade .2s}
 .mg-overlay[hidden]{display:none}
@@ -255,6 +256,10 @@ export class GameBase {
   vibrate(ms = 30) { if (this.touchMode && this.cfg.vibrate) navigator.vibrate?.(ms); }
   /** 설정값이 바뀌었을 때 (서브클래스에서 필요하면 구현) */
   onSettingsChange(_id) {}
+  /** 화면 크기가 바뀌었을 때 (CSS 픽셀) - 3D 레이어 등 */
+  onResize(_w, _h) {}
+  /** 게임이 제거될 때 (WebGL 자원 정리 등) */
+  onDestroy() {}
 
   /** 파티클 폭발 */
   burst(x, y, { color = '#fff', count = 12, speed = 140, life = 0.6, size = 3, gravity = 0 } = {}) {
@@ -325,6 +330,7 @@ export class GameBase {
   toggleMute() { sfx.setMuted(!sfx.muted); this._renderButtons(); }
   destroy() {
     cancelAnimationFrame(this._raf);
+    this.onDestroy();
     this._ro?.disconnect();
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
@@ -603,6 +609,7 @@ export class GameBase {
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this._renderScale = (w * dpr) / this.width;
+    this.onResize(w, h);
   }
 
   _renderHud() {
@@ -774,8 +781,9 @@ export class GameBase {
 
     const ctx = this.ctx;
     ctx.setTransform(this._renderScale || 1, 0, 0, this._renderScale || 1, 0, 0);
-    ctx.fillStyle = '#0e0f14';
-    ctx.fillRect(0, 0, this.width, this.height);
+    // clearColor = null 이면 투명 (3D 레이어 위에 HUD만 그리는 게임)
+    if (this.clearColor === null) ctx.clearRect(0, 0, this.width, this.height);
+    else { ctx.fillStyle = this.clearColor ?? '#0e0f14'; ctx.fillRect(0, 0, this.width, this.height); }
     ctx.save();
     if (this._shake.t > 0) {
       const k = this._shake.amount * (this._shake.t / this._shake.max);
