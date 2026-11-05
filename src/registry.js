@@ -20,4 +20,4 @@ export async function mountGame(id, container, opts = {}) {
   return new Game(container, opts);
 }
 
-export { getBest } from './engine.js';
+export { getBest, getTop } from './engine.js';

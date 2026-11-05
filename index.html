@@ -6,7 +6,11 @@
   <meta name="theme-color" content="#0b0c10">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-title" content="미니게임">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>미니게임</title>
   <style>
     * { box-sizing: border-box; }
@@ -26,34 +30,37 @@
     .card .title { font-size: 18px; font-weight: 700; }
     .card .desc { font-size: 13px; color: #9ca3af; }
     .card .best { margin-top: 10px; font-size: 12px; color: #fbbf24; font-weight: 600; min-height: 1em; }
-    footer { margin-top: 32px; font-size: 12px; color: #6b7280; }
+    footer { margin-top: 32px; font-size: 12px; color: #6b7280; line-height: 1.6; }
+    header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    #install { display: none; background: #3b82f6; color: #fff; border: 0; border-radius: 999px; padding: 9px 16px;
+      font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; white-space: nowrap; flex: none; }
+    #install.show { display: block; }
+    .ios-tip { display: none; margin: -10px 0 18px; font-size: 13px; color: #93c5fd; }
+    .ios-tip.show { display: block; }
 
     /* 게임 화면: 화면 전체를 쓰는 레이어 */
     #player { position: fixed; inset: 0; display: flex; flex-direction: column; background: #0b0c10;
       height: 100vh; height: 100dvh; padding-top: env(safe-area-inset-top); z-index: 10; }
     #player[hidden] { display: none; }
-    .topbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; flex: none; }
-    .topbar button { background: #1b1f2b; border: 0; color: #e5e7eb; border-radius: 10px; padding: 8px 14px; cursor: pointer; font: inherit; font-size: 14px; }
-    .topbar .name { font-weight: 700; }
     #stage { flex: 1; min-height: 0; width: 100%; max-width: 900px; margin: 0 auto; }
-    @media (min-width: 700px) { #stage { padding: 0 16px 16px; } #stage .mg-root { border-radius: 14px; } }
+    @media (min-width: 700px) and (min-height: 640px) { #stage { padding: 0 16px 16px; } #stage .mg-root { border-radius: 14px; } }
     body.playing { overflow: hidden; }
   </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>🎮 미니게임</h1>
-    <p>PC는 키보드·마우스, 모바일은 터치로 플레이할 수 있어요.</p>
+    <div>
+      <h1>🎮 미니게임</h1>
+      <p>PC는 키보드·마우스, 모바일은 터치로 플레이할 수 있어요.</p>
+    </div>
+    <button id="install" type="button">📲 앱으로 설치</button>
   </header>
+  <p class="ios-tip" id="iosTip">💡 Safari 공유 버튼 → "홈 화면에 추가"로 앱처럼 쓸 수 있어요.</p>
   <div class="list" id="list"></div>
-  <footer>최고 점수는 이 브라우저에 저장됩니다.</footer>
+  <footer>최고 점수는 이 브라우저에 저장됩니다. 한 번 열어두면 오프라인에서도 플레이할 수 있어요.</footer>
 </main>
 <div id="player" hidden>
-  <div class="topbar">
-    <button id="back" type="button">← 목록</button>
-    <span class="name" id="name"></span>
-  </div>
   <div id="stage"></div>
 </div>
 <script type="module">
@@ -62,7 +69,6 @@
   const $list = document.getElementById('list');
   const $player = document.getElementById('player');
   const $stage = document.getElementById('stage');
-  const $name = document.getElementById('name');
   let current = null;
 
   function renderList() {
@@ -83,10 +89,9 @@
     const entry = GAMES.find((g) => g.id === id);
     if (!entry) return close();
     current?.destroy();
-    $name.textContent = `${entry.emoji} ${entry.title}`;
     $player.hidden = false;
     document.body.classList.add('playing');
-    current = await mountGame(id, $stage, { fit: true, onEvent: (e) => console.debug('[game]', e) });
+    current = await mountGame(id, $stage, { fit: true, onExit: goBack, onEvent: (e) => console.debug('[game]', e) });
   }
 
   function close() {
@@ -97,13 +102,24 @@
     renderList();
   }
 
-  document.getElementById('back').onclick = () => {
+  function goBack() {
     if (history.state?.game) history.back(); else { history.replaceState(null, '', location.pathname); close(); }
-  };
+  }
   window.addEventListener('popstate', () => {
     const id = location.hash.slice(1);
     if (GAMES.some((g) => g.id === id)) open(id); else close();
   });
+
+  // 앱 설치 (PWA)
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  let installEvt = null;
+  const $install = document.getElementById('install');
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; $install.classList.add('show'); });
+  $install.onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; $install.classList.remove('show'); };
+  if (!standalone && /iPhone|iPad|iPod/.test(navigator.userAgent)) document.getElementById('iosTip').classList.add('show');
 
   renderList();
   const fromHash = location.hash.slice(1);

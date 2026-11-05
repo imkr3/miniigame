@@ -28,7 +28,7 @@ jobs:
       - name: Collect site files
         run: |
           mkdir _site
-          cp -r index.html embed.html src .nojekyll _site/
+          cp -r index.html embed.html manifest.webmanifest sw.js icons src .nojekyll _site/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

@@ -14,6 +14,7 @@ const BASE_KEYS = {
   Space: 'action', Enter: 'action',
   KeyP: 'pause', Escape: 'pause',
   KeyM: 'mute',
+  KeyR: 'restart',
 };
 
 const CSS = `
@@ -23,10 +24,10 @@ const CSS = `
   background:var(--mg-panel);border-radius:14px;overflow:hidden;box-sizing:border-box}
 .mg-root *{box-sizing:border-box}
 .mg-root.mg-fit{height:100%;border-radius:0}
-.mg-hud{display:flex;gap:14px;align-items:center;padding:8px 10px 8px 14px;font-size:14px;flex:none}
+.mg-hud{display:flex;gap:12px;align-items:center;padding:8px 10px 8px 14px;font-size:14px;flex:none}
 .mg-hud b{font-variant-numeric:tabular-nums;font-size:16px;margin-left:3px}
 .mg-hud .mg-info{flex:1;text-align:right;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mg-hud button{background:#262b3a;color:#e5e7eb;border:0;border-radius:8px;width:34px;height:30px;cursor:pointer;font-size:15px;line-height:1;flex:none}
+.mg-hud button{touch-action:manipulation;background:#262b3a;color:#e5e7eb;border:0;border-radius:8px;width:34px;height:30px;cursor:pointer;font-size:15px;line-height:1;flex:none}
 .mg-hud button:hover{background:#323949}
 .mg-stage{position:relative;display:flex;align-items:center;justify-content:center;background:var(--mg-bg);overflow:hidden}
 .mg-fit .mg-stage{flex:1;min-height:0}
@@ -39,8 +40,16 @@ const CSS = `
 .mg-overlay p{margin:0;opacity:.85;font-size:14px;line-height:1.6;max-width:340px}
 .mg-overlay .mg-big{font-size:clamp(28px,8vw,44px);font-weight:800;font-variant-numeric:tabular-nums}
 .mg-overlay .mg-new{color:#facc15;font-weight:700}
-.mg-overlay .mg-hint{margin-top:6px;padding:9px 20px;border-radius:999px;background:var(--mg-accent);color:#fff;font-weight:700;font-size:15px;
-  animation:mg-pulse 1.6s ease-in-out infinite}
+.mg-actions{display:flex;gap:10px;margin-top:6px;flex-wrap:wrap;justify-content:center}
+.mg-actions button{border:0;border-radius:999px;padding:11px 22px;font:inherit;font-weight:700;font-size:15px;cursor:pointer;
+  background:#2a3040;color:#e5e7eb;touch-action:manipulation}
+.mg-actions button:hover{filter:brightness(1.15)}
+.mg-actions button.mg-primary{background:var(--mg-accent);color:#fff;animation:mg-pulse 1.6s ease-in-out infinite}
+.mg-overlay .mg-keys{font-size:12px;opacity:.55;margin:0}
+.mg-records{list-style:none;margin:2px 0 0;padding:0;font-size:13px;min-width:180px;font-variant-numeric:tabular-nums}
+.mg-records li{display:flex;justify-content:space-between;gap:16px;padding:3px 10px;border-radius:6px;opacity:.75}
+.mg-records li.mg-me{background:rgba(250,204,21,.15);color:#fde68a;opacity:1;font-weight:700}
+@media (max-height:420px){.mg-records{display:none}}
 @keyframes mg-pulse{50%{transform:scale(1.05)}}
 @keyframes mg-fade{from{opacity:0}}
 .mg-pad{display:none;justify-content:space-between;align-items:center;gap:12px;flex:none;
@@ -54,11 +63,21 @@ const CSS = `
 .mg-pad button.mg-primary.mg-on{background:#2563eb}
 .mg-dpad{display:grid;grid-template-columns:repeat(3,58px);grid-template-rows:repeat(3,58px);gap:4px;
   grid-template-areas:". up ." "left . right" ". down ."}
+.mg-pad button.mg-txt{font-size:14px;white-space:nowrap}
 .mg-lr{display:flex;gap:10px}
 .mg-lr button{width:72px;height:64px}
 .mg-btns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .mg-btns button{min-width:64px;height:64px;padding:0 12px;font-size:17px;border-radius:50px}
 .mg-btns button.mg-wide{min-width:120px;height:72px}
+/* 가로 모드(폰 눕힘): 버튼을 화면 양옆으로 */
+.mg-land{display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto 1fr;grid-template-areas:"hud hud hud" "pl stage pr"}
+.mg-land .mg-hud{grid-area:hud;padding-left:max(14px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}
+.mg-land .mg-stage{grid-area:stage;min-width:0}
+.mg-land .mg-pad{display:contents}
+.mg-land .mg-pad>:first-child{grid-area:pl;align-self:end;padding:10px 10px max(14px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+.mg-land .mg-pad>:last-child{grid-area:pr;align-self:end;flex-direction:column-reverse;flex-wrap:nowrap;
+  padding:10px max(12px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) 10px}
+.mg-land .mg-btns button.mg-wide{min-width:96px;height:96px;border-radius:50%}
 @media (max-height:560px){.mg-dpad{grid-template-columns:repeat(3,46px);grid-template-rows:repeat(3,46px)}
   .mg-btns button{height:52px;min-width:52px}.mg-lr button{height:52px;width:60px}.mg-pad{padding-top:6px}}
 `;
@@ -77,6 +96,18 @@ const storage = {
 };
 
 export const getBest = (id) => storage.get(`miniigame:${id}:best`);
+
+/** 게임별 상위 5개 기록 [{ s: 점수, d: 날짜(ms) }] */
+export function getTop(id) {
+  try { return JSON.parse(localStorage.getItem(`miniigame:${id}:top`)) || []; } catch { return []; }
+}
+function pushTop(id, score) {
+  const entry = { s: score, d: Date.now() };
+  const top = [...getTop(id), entry].sort((a, b) => b.s - a.s).slice(0, 5);
+  try { localStorage.setItem(`miniigame:${id}:top`, JSON.stringify(top)); } catch { /* ignore */ }
+  return { top, rank: top.indexOf(entry) };
+}
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 const isCoarse = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
 
@@ -104,8 +135,9 @@ export class GameBase {
    * @param {number} [opts.maxWidth] fit이 아닐 때 최대 너비(px)
    * @param {'auto'|'always'|'never'} [opts.controls] 가상 패드 표시
    * @param {(e:object)=>void} [opts.onEvent]
+   * @param {()=>void} [opts.onExit] 지정하면 HUD 왼쪽에 '나가기' 버튼 표시
    */
-  constructor(container, { width, height, fit = false, maxWidth, controls = 'auto', onEvent } = {}) {
+  constructor(container, { width, height, fit = false, maxWidth, controls = 'auto', onEvent, onExit } = {}) {
     injectStyle();
     const C = this.constructor;
     this.meta = C.meta;
@@ -115,6 +147,7 @@ export class GameBase {
     this.fit = fit;
     this.controlsMode = controls;
     this.onEvent = onEvent;
+    this.onExit = onExit;
     this.state = 'ready'; // ready | playing | paused | over
     this.score = 0;
     this.time = 0;        // 플레이 시간(초)
@@ -168,12 +201,18 @@ export class GameBase {
     this._overAt = performance.now();
     const isBest = this.score > this.best;
     if (isBest) { this.best = this.score; storage.set(this.bestKey, this.best); }
+    const { top, rank } = this.score > 0 ? pushTop(this.meta.id, this.score) : { top: getTop(this.meta.id), rank: -1 };
     this._renderHud();
     this.sound('over');
     this.vibrate(120);
-    this._showOverlay(title,
-      `<div class="mg-big">${this.score}</div>${isBest && this.score > 0 ? '<div class="mg-new">🏆 최고 기록!</div>' : `<p>최고 ${this.best}</p>`}`,
-      'restart');
+    const medal = ['🥇', '🥈', '🥉', '4', '5'];
+    const list = top.length ? `<ol class="mg-records">${top.map((r, i) => {
+      const d = new Date(r.d);
+      return `<li class="${i === rank ? 'mg-me' : ''}"><span>${medal[i]}</span><span>${r.s}</span><span>${d.getMonth() + 1}/${d.getDate()}</span></li>`;
+    }).join('')}</ol>` : '';
+    const badge = isBest && this.score > 0 ? '<div class="mg-new">🏆 최고 기록!</div>'
+      : rank >= 0 ? `<div class="mg-new">${rank + 1}위 기록!</div>` : '';
+    this._showOverlay(title, `<div class="mg-big">${this.score}</div>${badge}${list}`, 'restart');
     this._emit('gameover', { score: this.score, best: this.best, newBest: isBest });
   }
 
@@ -205,6 +244,8 @@ export class GameBase {
     this._emit('resume');
   }
   togglePause() { this.state === 'playing' ? this.pause() : this.resume(); }
+  /** 진행 중인 판을 버리고 새로 시작 */
+  restart() { this.keys.clear(); this._emit('restart'); this.start(); }
   toggleMute() { sfx.setMuted(!sfx.muted); this._renderButtons(); }
   destroy() {
     cancelAnimationFrame(this._raf);
@@ -229,6 +270,7 @@ export class GameBase {
     if (!this.fit) root.style.maxWidth = `${maxWidth}px`;
     root.innerHTML = `
       <div class="mg-hud">
+        <button type="button" class="mg-exit" aria-label="나가기">←</button>
         <span>점수<b class="mg-score">0</b></span>
         <span>최고<b class="mg-best">0</b></span>
         <span class="mg-info"></span>
@@ -254,6 +296,8 @@ export class GameBase {
     this.$pad = $('.mg-pad');
     this.$mute = $('.mg-mute');
     this.$pauseBtn = $('.mg-pause');
+    const $exit = $('.mg-exit');
+    if (this.onExit) $exit.addEventListener('click', () => this.onExit()); else $exit.remove();
     this.$mute.addEventListener('click', () => { sfx.unlock(); this.toggleMute(); });
     this.$pauseBtn.addEventListener('click', () => {
       sfx.unlock();
@@ -266,10 +310,12 @@ export class GameBase {
     this._applyTouchMode();
     this._renderHud();
     this._renderButtons();
-    this._showOverlay(this.meta.title, `<p>${this.meta.description}</p>{{controls}}`, 'start');
+    this._showOverlay(this.meta.title,
+      `<p>${esc(this.meta.description)}</p>{{controls}}${this.best ? `<p class="mg-new">🏆 내 최고 ${this.best}</p>` : ''}`, 'start');
 
     this._ro = new ResizeObserver(() => this._layout());
     this._ro.observe(this.$stage);
+    this._ro.observe(this.root);
     this._layout();
   }
 
@@ -277,7 +323,7 @@ export class GameBase {
     const { left, buttons = [], labels = {} } = this.constructor.pad;
     const L = { up: '▲', left: '◀', right: '▶', down: '▼', ...labels };
     const btn = (action) =>
-      `<button type="button" data-action="${action}" style="grid-area:${action}">${L[action]}</button>`;
+      `<button type="button" data-action="${action}" class="${L[action].length > 1 ? 'mg-txt' : ''}" style="grid-area:${action}">${L[action]}</button>`;
     let leftHtml = '<div></div>';
     if (left === 'dpad') leftHtml = `<div class="mg-dpad">${btn('up')}${btn('left')}${btn('right')}${btn('down')}</div>`;
     if (left === 'lr') leftHtml = `<div class="mg-lr">${btn('left')}${btn('right')}</div>`;
@@ -318,13 +364,18 @@ export class GameBase {
     this.root.classList.toggle('mg-touch', this.touchMode);
     // 오버레이 안내 문구 갱신
     if (!this.$overlay.hidden && this._overlayKind) {
-      this.$overlay.querySelector('.mg-hint').textContent = this._hintText(this._overlayKind);
+      const k = this.$overlay.querySelector('.mg-keys');
+      if (k) k.textContent = this._hintText(this._overlayKind);
       const p = this.$overlay.querySelector('.mg-ctrl');
       if (p) p.textContent = this._controlsText();
     }
+    if (this._ro) this._layout();
   }
 
   _layout() {
+    // 폰을 눕혔을 때는 버튼을 양옆으로 배치
+    const land = this.fit && this.touchMode && this.root.clientWidth > this.root.clientHeight * 1.15;
+    if (land !== this.root.classList.contains('mg-land')) this.root.classList.toggle('mg-land', land);
     const availW = this.$stage.clientWidth;
     const availH = this.fit ? this.$stage.clientHeight : Infinity;
     if (!availW || !availH) return;
@@ -350,21 +401,31 @@ export class GameBase {
   }
 
   _hintText(kind) {
-    const t = this.touchMode;
-    return {
-      start: t ? '탭해서 시작' : 'Space 키로 시작',
-      restart: t ? '탭해서 다시 시작' : 'Space 키로 다시 시작',
-      resume: t ? '탭해서 계속' : 'Space 키로 계속',
-    }[kind];
+    if (this.touchMode) return kind === 'resume' ? '' : '화면 아무 곳이나 탭해도 시작돼요';
+    return { start: 'Space 키로 시작', restart: 'Space 다시 시작', resume: 'Space 계속 · R 처음부터' }[kind];
   }
 
   _showOverlay(title, body, kind) {
     this._overlayKind = kind;
-    this.$overlay.innerHTML = `<h2></h2>${body.replace('{{controls}}', '<p class="mg-ctrl"></p>')}<span class="mg-hint"></span>`;
+    const buttons = {
+      start: [['시작', 'action', true]],
+      restart: [['다시 시작', 'action', true]],
+      resume: [['계속', 'action', true], ['처음부터', 'restart', false]],
+    }[kind];
+    this.$overlay.innerHTML = `<h2></h2>${body.replace('{{controls}}', '<p class="mg-ctrl"></p>')}
+      <div class="mg-actions">${buttons.map(([label, act, primary]) =>
+        `<button type="button" data-act="${act}" class="${primary ? 'mg-primary' : ''}">${label}</button>`).join('')}</div>
+      <p class="mg-keys"></p>`;
     const ctrl = this.$overlay.querySelector('.mg-ctrl');
     if (ctrl) ctrl.textContent = this._controlsText();
     this.$overlay.querySelector('h2').textContent = title;
-    this.$overlay.querySelector('.mg-hint').textContent = this._hintText(kind);
+    this.$overlay.querySelector('.mg-keys').textContent = this._hintText(kind);
+    this.$overlay.querySelectorAll('[data-act]').forEach((b) => {
+      // 버튼 누름이 화면 탭 제스처로 중복 처리되지 않도록 전파 차단
+      b.addEventListener('pointerdown', (e) => { e.stopPropagation(); sfx.unlock(); activeGame = this; });
+      b.addEventListener('pointerup', (e) => e.stopPropagation());
+      b.addEventListener('click', (e) => { e.stopPropagation(); this._press(b.dataset.act); });
+    });
     this.$overlay.hidden = false;
     this._renderButtons();
   }
@@ -373,6 +434,7 @@ export class GameBase {
   _press(action, repeat = false) {
     if (action === 'mute') { if (!repeat) this.toggleMute(); return; }
     if (action === 'pause') { if (!repeat) this.togglePause(); return; }
+    if (action === 'restart') { if (!repeat && this.state !== 'ready') this.restart(); return; }
     if (this.state === 'ready' || this.state === 'over') {
       // 게임오버 직후 연타로 바로 재시작되는 것 방지
       const cooled = !this._overAt || performance.now() - this._overAt > 700;

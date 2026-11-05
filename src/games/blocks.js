@@ -56,6 +56,8 @@ export default class Blocks extends GameBase {
     this.gravityT = 0;
     this.shift = null;     // { dir, t } 좌우 연속 이동 상태
     this.softT = 0;
+    this.combo = -1;       // 연속으로 줄을 지운 횟수
+    this.clearing = null;  // { rows, t } 줄 삭제 연출 중
     this.spawn();
     this.updateInfo();
   }
@@ -143,11 +145,19 @@ export default class Blocks extends GameBase {
         for (let x = 0; x < COLS; x++)
           this.burst((x + 0.5) * CELL, (y + 0.5) * CELL, { color: COLORS[this.board[y][x]], count: 3, speed: 160, life: 0.5 });
       }
-      this.board = this.board.filter((_, y) => !full.includes(y));
-      while (this.board.length < ROWS) this.board.unshift(Array(COLS).fill(-1));
-      const gained = LINE_SCORE[full.length] * this.level;
+      this.combo++;
+      let gained = LINE_SCORE[full.length] * this.level + Math.max(0, this.combo) * 50 * this.level;
+      const label = [LINE_TEXT[full.length], this.combo > 0 ? `${this.combo}콤보` : ''].filter(Boolean).join(' ');
+      const after = this.board.filter((_, y) => !full.includes(y));
+      if (after.every((row) => row.every((c) => c < 0))) { // 판을 완전히 비우면 보너스
+        gained += 2000 * this.level;
+        this.floatText(BW / 2, ROWS * CELL / 2 + 30, '퍼펙트 클리어!', '#f0abfc', 24);
+      }
       this.addScore(gained);
-      this.floatText(BW / 2, full[0] * CELL, `${LINE_TEXT[full.length]} +${gained}`, '#fde68a', full.length >= 4 ? 22 : 16);
+      this.floatText(BW / 2, full[0] * CELL, `${label} +${gained}`, '#fde68a', full.length >= 4 ? 22 : 16);
+      // 줄이 잠깐 번쩍인 뒤 사라지도록 삭제는 update에서
+      this.clearing = { rows: full, t: 0.18 };
+      this.piece = null;
       if (full.length >= 4) this.shake(7);
       this.vibrate(40);
       this.lines += full.length;
@@ -155,10 +165,20 @@ export default class Blocks extends GameBase {
       if (newLevel > this.level) { this.level = newLevel; this.sound('levelup'); this.floatText(BW / 2, ROWS * CELL / 2, `레벨 ${this.level}`, '#93c5fd', 24); }
       else this.sound('clear');
       this.updateInfo();
-    } else {
-      this.sound('lock');
+      this.canHold = true;
+      return;
     }
+    this.combo = -1;
+    this.sound('lock');
     this.canHold = true;
+    this.spawn();
+  }
+
+  finishClear() {
+    const rows = this.clearing.rows;
+    this.board = this.board.filter((_, y) => !rows.includes(y));
+    while (this.board.length < ROWS) this.board.unshift(Array(COLS).fill(-1));
+    this.clearing = null;
     this.spawn();
   }
 
@@ -167,7 +187,7 @@ export default class Blocks extends GameBase {
   get gravity() { return Math.max(0.05, 0.8 * Math.pow(0.85, this.level - 1)); }
 
   onAction(action, repeat) {
-    if (repeat) return; // 키 반복은 엔진 대신 아래 update의 DAS로 처리
+    if (repeat || !this.piece) return; // 키 반복은 엔진 대신 아래 update의 DAS로 처리
     if (action === 'left' || action === 'right') {
       const dx = action === 'left' ? -1 : 1;
       if (this.tryMove(dx, 0)) this.sound('move');
@@ -191,6 +211,10 @@ export default class Blocks extends GameBase {
   }
 
   update(dt) {
+    if (this.clearing) {
+      if ((this.clearing.t -= dt) <= 0) this.finishClear();
+      return;
+    }
     // 좌우 길게 누르기
     if (this.shift) {
       if (!this.isDown(this.shift.dir)) this.shift = null;
@@ -260,6 +284,13 @@ export default class Blocks extends GameBase {
     ctx.stroke();
 
     this.board.forEach((row, y) => row.forEach((c, x) => { if (c >= 0) this.drawCell(ctx, x * CELL, y * CELL, CELL, COLORS[c]); }));
+
+    if (this.clearing) {
+      ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(this.clearing.t * 30));
+      ctx.fillStyle = '#fff';
+      for (const y of this.clearing.rows) ctx.fillRect(0, y * CELL, BW, CELL);
+      ctx.globalAlpha = 1;
+    }
 
     const p = this.piece;
     if (p && this.state !== 'ready') {

@@ -7,11 +7,11 @@ PC(키보드·마우스)와 모바일(터치·화면 버튼) 모두 지원합니
 
 | id | 게임 | 장르 |
 |---|---|---|
-| `blocks` | 블록 낙하 | 낙하 블록 퍼즐 |
-| `maze` | 미로 추격 | 미로 점 먹기 + 추격자 |
-| `snake` | 스네이크 | 스네이크 |
-| `breakout` | 벽돌깨기 | 벽돌깨기 |
-| `runner` | 점프 러너 | 무한 러너 |
+| `blocks` | 블록 낙하 | 낙하 블록 퍼즐 (보관, 콤보, 퍼펙트 클리어) |
+| `maze` | 미로 추격 | 미로 점 먹기 + 추격자 (맵 2종, 보너스 별) |
+| `snake` | 스네이크 | 스네이크 (황금 먹이) |
+| `breakout` | 벽돌깨기 | 벽돌깨기 (아이템: 확장·멀티볼·슬로우·목숨) |
+| `runner` | 점프 러너 | 무한 러너 (코인, 공중 장애물) |
 
 ## 실행
 
@@ -35,7 +35,14 @@ python3 -m http.server 8000
 | 벽돌깨기 | 마우스 이동 또는 ←→, 클릭/Space 발사 | 화면 어디서나 좌우로 끌기, 탭 발사 |
 | 점프 러너 | Space/↑/클릭 (길게 = 높이) | 화면 탭 (길게 = 높이) |
 
-공통: P/Esc 일시정지, M 소리 끄기. 모바일 화면 버튼은 터치 기기에서만 자동으로 나타납니다.
+공통: P/Esc 일시정지, R 처음부터, M 소리 끄기. 모바일 화면 버튼은 터치 기기에서만 자동으로 나타나고, 폰을 가로로 눕히면 버튼이 화면 양옆으로 이동합니다.
+
+게임별 TOP 5 기록이 게임오버 화면에 표시됩니다 (`localStorage`).
+
+## 앱으로 설치 (PWA)
+
+안드로이드 Chrome은 목록 페이지의 "앱으로 설치" 버튼, iPhone은 Safari 공유 → "홈 화면에 추가".
+한 번 열어두면 오프라인에서도 실행됩니다 (`sw.js`, 네트워크 우선 + 캐시 대비).
 
 ## 다른 사이트에 붙이는 방법
 
@@ -65,9 +72,10 @@ python3 -m http.server 8000
   const game = await mountGame('snake', document.getElementById('game'), {
     fit: false,          // true면 컨테이너 높이까지 꽉 채움 (컨테이너에 높이 지정 필요)
     controls: 'auto',    // 화면 버튼: auto(터치 기기만) | always | never
+    onExit: () => {},    // 지정하면 HUD에 '←' 나가기 버튼 표시
     onEvent: (e) => console.log(e), // { type: 'start'|'pause'|'resume'|'gameover', game, score, best? }
   });
-  // game.pause(); game.resume(); game.destroy();
+  // game.pause(); game.resume(); game.restart(); game.destroy();
 </script>
 ```
 
@@ -80,6 +88,7 @@ src/
   registry.js   게임 목록 + mountGame()
   games/*.js    게임별 구현
 index.html      게임 목록 페이지
+manifest.webmanifest, sw.js, icons/   PWA(설치·오프라인)
 embed.html      iframe용 단일 게임 페이지
 ```
 

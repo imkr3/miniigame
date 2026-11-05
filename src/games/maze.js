@@ -2,7 +2,7 @@ import { GameBase, DIRS, roundRect } from '../engine.js';
 
 // 미로 추격: 점을 모두 먹으면 라운드 클리어. 파워 점을 먹으면 잠시 추격자를 잡을 수 있다.
 // # 벽 · . 점 · o 파워 점 · C 추격자 시작 위치 · P 플레이어 시작 위치
-const MAP = [
+const MAPS = [[
   '###################',
   '#o.......#.......o#',
   '#.##.###.#.###.##.#',
@@ -18,8 +18,24 @@ const MAP = [
   '#.##.###.#.###.##.#',
   '#o.......P.......o#',
   '###################',
-];
-const ROWS = MAP.length, COLS = MAP[0].length, CELL = 28;
+], [
+  '###################',
+  '#o..#.........#..o#',
+  '#.#.#.###.###.#.#.#',
+  '#.#.....#.#.....#.#',
+  '#.###.#.#.#.#.###.#',
+  '#.....#.....#.....#',
+  '###.#.###.###.#.###',
+  '#...#...CCC...#...#',
+  '#.#.###.###.###.#.#',
+  '#.#.............#.#',
+  '#.#.##.##.##.##.#.#',
+  '#.......#.#.......#',
+  '#.#####.#.#.#####.#',
+  '#o.......P.......o#',
+  '###################',
+]];
+const ROWS = MAPS[0].length, COLS = MAPS[0][0].length, CELL = 28;
 const DIR_LIST = Object.values(DIRS);
 const CHASER_COLORS = ['#f43f5e', '#a855f7', '#f59e0b'];
 const FRIGHT_TIME = 6;
@@ -47,8 +63,11 @@ export default class Maze extends GameBase {
   }
 
   setupRound() {
+    this.map = MAPS[(this.round - 1) % MAPS.length];
+    this.eatenCount = 0;
+    this.bonus = null;
     this.dots = new Map(); // "x,y" -> 'dot' | 'power'
-    MAP.forEach((row, y) => [...row].forEach((ch, x) => {
+    this.map.forEach((row, y) => [...row].forEach((ch, x) => {
       if (ch === '.') this.dots.set(`${x},${y}`, 'dot');
       if (ch === 'o') this.dots.set(`${x},${y}`, 'power');
     }));
@@ -58,7 +77,7 @@ export default class Maze extends GameBase {
   resetPositions() {
     const find = (ch) => {
       const out = [];
-      MAP.forEach((row, y) => [...row].forEach((c, x) => { if (c === ch) out.push({ x, y }); }));
+      this.map.forEach((row, y) => [...row].forEach((c, x) => { if (c === ch) out.push({ x, y }); }));
       return out;
     };
     const [p] = find('P');
@@ -79,7 +98,7 @@ export default class Maze extends GameBase {
 
   updateInfo() { this.setInfo(`목숨 ${'●'.repeat(this.lives)} · 라운드 ${this.round}`); }
 
-  open(x, y) { return y >= 0 && y < ROWS && x >= 0 && x < COLS && MAP[y][x] !== '#'; }
+  open(x, y) { return y >= 0 && y < ROWS && x >= 0 && x < COLS && this.map[y][x] !== '#'; }
 
   onAction(action) {
     const d = DIRS[action];
@@ -127,6 +146,11 @@ export default class Maze extends GameBase {
     const kind = this.dots.get(key);
     if (!kind) return;
     this.dots.delete(key);
+    this.eatenCount++;
+    if (this.eatenCount === 50 || this.eatenCount === 100) {
+      // 보너스 별: 플레이어 시작 위치에 잠시 나타남
+      this.map.forEach((row, y) => [...row].forEach((c, x) => { if (c === 'P') this.bonus = { x, y, t: 9 }; }));
+    }
     if (kind === 'dot') { this.addScore(10); this.sound('dot'); }
     else {
       this.addScore(50);
@@ -154,6 +178,18 @@ export default class Maze extends GameBase {
     if (this.fright > 0) this.fright = Math.max(0, this.fright - dt);
 
     this.move(this.player, dt, (p) => this.choosePlayerDir(p), (p) => this.eatAt(p));
+    if (this.bonus) {
+      this.bonus.t -= dt;
+      const pl = this.player;
+      if (pl.x === this.bonus.x && pl.y === this.bonus.y) {
+        const pts = 300 * this.round;
+        this.addScore(pts);
+        this.floatText((pl.x + 0.5) * CELL, pl.y * CELL, `+${pts}`, '#f0abfc', 18);
+        this.burst((pl.x + 0.5) * CELL, (pl.y + 0.5) * CELL, { color: '#f0abfc', count: 16, speed: 140 });
+        this.sound('bonus');
+        this.bonus = null;
+      } else if (this.bonus.t <= 0) this.bonus = null;
+    }
 
     for (const c of this.chasers) {
       if (c.wait > 0) { c.wait -= dt; continue; }
@@ -197,10 +233,10 @@ export default class Maze extends GameBase {
 
   draw(ctx) {
     // 벽: 이웃한 벽끼리 이어서 그림
-    const wall = (x, y) => MAP[y]?.[x] === '#';
+    const wall = (x, y) => this.map[y]?.[x] === '#';
     const I = 5;
     ctx.fillStyle = '#1d3557';
-    MAP.forEach((row, y) => [...row].forEach((ch, x) => {
+    this.map.forEach((row, y) => [...row].forEach((ch, x) => {
       if (ch !== '#') return;
       roundRect(ctx, x * CELL + I, y * CELL + I, CELL - I * 2, CELL - I * 2, 5);
       if (wall(x + 1, y)) ctx.fillRect(x * CELL + CELL / 2, y * CELL + I, CELL, CELL - I * 2);
@@ -214,6 +250,19 @@ export default class Maze extends GameBase {
       ctx.beginPath();
       ctx.arc((x + 0.5) * CELL, (y + 0.5) * CELL, kind === 'power' ? 7 : 2.5, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // 보너스 별
+    if (this.bonus && !(this.bonus.t < 2 && Math.floor(this.bonus.t * 8) % 2)) {
+      const bx = (this.bonus.x + 0.5) * CELL, by = (this.bonus.y + 0.5) * CELL;
+      const r = CELL * 0.42 * (1 + Math.sin(performance.now() / 150) * 0.08);
+      ctx.fillStyle = '#f0abfc';
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? r * 0.45 : r;
+        ctx.lineTo(bx + Math.cos(a) * rr, by + Math.sin(a) * rr);
+      }
+      ctx.closePath(); ctx.fill();
     }
 
     // 플레이어: 민트색 원 + 진행 방향 눈

@@ -9,7 +9,7 @@ export default class Runner extends GameBase {
   static meta = {
     id: 'runner',
     title: '점프 러너',
-    description: '달려오는 장애물을 뛰어넘으세요. 공중 장애물은 점프하지 말고 아래로 지나가요!',
+    description: '장애물을 뛰어넘고 코인을 모으세요. 공중 장애물은 점프하지 말고 아래로 지나가요!',
     controls: 'Space / ↑ / 클릭 점프 · 길게 누르면 높이 점프',
     touchControls: '화면 탭 점프 · 길게 누르면 높이 점프',
   };
@@ -31,6 +31,9 @@ export default class Runner extends GameBase {
     this.speed = 320;
     this.distance = 0;
     this.obstacles = [];
+    this.coins = [];
+    this.coinScore = 0;
+    this.coinCount = 0;
     this.spawnIn = 1.2;
     this.groundOffset = 0;
     this.nextMilestone = 100;
@@ -65,6 +68,15 @@ export default class Runner extends GameBase {
       const tall = Math.random() < 0.3;
       const w = 18 + Math.random() * 18, h = tall ? 50 : 28 + Math.random() * 12;
       this.obstacles.push({ x: W + 10, w, h, y: GROUND - h });
+      // 장애물 위 아치 모양 코인: 점프 궤적을 안내하는 역할
+      if (Math.random() < 0.45) {
+        for (let i = 0; i < 5; i++)
+          this.coins.push({ x: W + 10 + w / 2 + (i - 2) * 26, y: GROUND - h - 34 - (2 - Math.abs(i - 2)) * 16 });
+      }
+    }
+    // 바닥 코인 줄 (다음 장애물과 겹치지 않는 위치)
+    if (Math.random() < 0.25) {
+      for (let i = 0; i < 4; i++) this.coins.push({ x: W + 120 + i * 24, y: GROUND - 18 });
     }
     const tight = Math.min(0.4, (this.speed - 320) / 900);
     this.spawnIn = 0.75 + Math.random() * 1.0 - tight;
@@ -90,9 +102,9 @@ export default class Runner extends GameBase {
     this.speed = Math.min(900, this.speed + 9 * dt);
     this.distance += this.speed * dt;
     this.groundOffset = (this.groundOffset + this.speed * dt) % 40;
-    this.setScore(Math.floor(this.distance / 10));
-    this.setInfo(`속도 ×${(this.speed / 320).toFixed(1)}`);
-    if (this.score >= this.nextMilestone) {
+    this.setScore(Math.floor(this.distance / 10) + this.coinScore);
+    this.setInfo(`🪙${this.coinCount} · ×${(this.speed / 320).toFixed(1)}`);
+    if (Math.floor(this.distance / 10) >= this.nextMilestone) {
       this.sound('tick');
       this.floatText(W / 2, 60, `${this.nextMilestone}!`, '#a3e635', 20);
       this.nextMilestone += 100;
@@ -104,6 +116,17 @@ export default class Runner extends GameBase {
     if (this.spawnIn <= 0) this.spawn();
     for (const o of this.obstacles) o.x -= this.speed * dt * (o.bird ? 1.15 : 1);
     this.obstacles = this.obstacles.filter((o) => o.x + o.w > -10);
+    for (const c of this.coins) {
+      c.x -= this.speed * dt;
+      if (!c.got && c.x > PLAYER.x - 8 && c.x < PLAYER.x + PLAYER.w + 8 && c.y > this.y - 8 && c.y < this.y + PLAYER.h + 8) {
+        c.got = true;
+        this.coinCount++;
+        this.coinScore += 5;
+        this.sound('dot');
+        this.burst(c.x, c.y, { color: '#facc15', count: 5, speed: 70, life: 0.3 });
+      }
+    }
+    this.coins = this.coins.filter((c) => !c.got && c.x > -10);
 
     // 충돌 (약간 여유를 둔 박스)
     const px = PLAYER.x + 5, py = this.y + 5, pw = PLAYER.w - 10, ph = PLAYER.h - 7;
@@ -137,6 +160,14 @@ export default class Runner extends GameBase {
     ctx.fillRect(0, GROUND, W, 2);
     ctx.fillStyle = '#2b3448';
     for (let x = -(this.groundOffset ?? 0); x < W; x += 40) ctx.fillRect(x, GROUND + 14, 18, 2);
+
+    const spin = Math.abs(Math.cos(performance.now() / 160));
+    for (const c of this.coins ?? []) {
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath(); ctx.ellipse(c.x, c.y, 7 * Math.max(0.25, spin), 7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(c.x - 1, c.y - 3, 2, 6);
+    }
 
     for (const o of this.obstacles ?? []) {
       if (o.bird) {
