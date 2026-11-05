@@ -29,41 +29,51 @@ export function combineStats(ch, kart) {
     raw,
     maxSpeed: 26 + raw.speed * 0.8,     // m/s (최고 속도 차이는 작게)
     accel: 6 + raw.accel * 2.1,         // m/s² (가속 차이는 크게 → 부딪히거나 맞은 뒤 회복이 빠름)
-    turn: 1.5 + raw.handling * 0.12,    // rad/s
+    turn: 1.15 + raw.handling * 0.08,   // rad/s (예전보다 낮춰서 덜 휙휙 돌게)
     weight: raw.weight,
     offroad: kart.offroad ? 0.68 : 0.52, // 풀밭 최고 속도 배율
   };
 }
 
-// 트랙: 제어점(x, z)을 잇는 닫힌 곡선. boosts = 가속 발판 위치(트랙 길이 비율), boxes = 아이템 박스 줄 위치
+// 트랙: 제어점 [x, z, 높이y]를 잇는 닫힌 곡선
+// boosts = 가속 발판(트랙 길이 비율), boxes = 아이템 박스 줄
+// ramps = 점프대가 있는 제어점 번호, gliders = [시작 제어점, 끝 제어점] 사이가 낭떠러지 → 글라이더로 활공
+// bridges = [시작, 끝] 제어점 구간은 흙둑 대신 기둥으로 받침 (고가도로), floating = 공중에 떠 있는 트랙
 export const TRACKS = [
   {
-    id: 'sunny', name: '햇살 서킷', desc: '완만한 코너, 입문용', emoji: '🌳',
+    id: 'sunny', name: '햇살 서킷', desc: '완만한 언덕과 점프대, 입문용', emoji: '🌳',
     scale: 1.45, width: 16,
-    points: [[0, 0], [60, 0], [110, -5], [150, 20], [160, 65], [135, 100], [90, 105], [60, 80], [30, 90], [10, 130], [-40, 140], [-90, 115], [-105, 60], [-80, 20], [-40, 5]],
-    boosts: [0.05, 0.62], boxes: [0.2, 0.47, 0.78],
-    theme: { sky: 0x8ecbff, fog: 0xbfe3ff, ground: 0x5fa64a, wall: 0xf1f5f9, wallTop: 0xef4444, curbA: 0xef4444, curbB: 0xffffff, scenery: 'trees', sun: 0xffffff },
+    points: [[0, 0, 0], [60, 0, 0], [110, -5, 2], [150, 20, 5], [160, 65, 7], [135, 100, 6], [90, 105, 3], [60, 80, 0], [30, 90, 0], [10, 130, 2], [-40, 140, 4], [-90, 115, 2], [-105, 60, 0], [-80, 20, 0], [-40, 5, 0]],
+    boosts: [0.05, 0.62], boxes: [0.2, 0.47, 0.78], ramps: [8, 12],
+    theme: { sky: 0x8ecbff, fog: 0xbfe3ff, ground: 0x5fa64a, dirt: 0x7a5a3a, wall: 0xf1f5f9, wallTop: 0xef4444, curbA: 0xef4444, curbB: 0xffffff, scenery: 'trees', sun: 0xffffff },
   },
   {
-    id: 'canyon', name: '모래 협곡', desc: '급커브와 헤어핀, 드리프트 필수', emoji: '🏜️',
+    id: 'canyon', name: '모래 협곡', desc: '절벽 위로 올라가 협곡을 글라이더로 건너기', emoji: '🏜️',
     scale: 1.3, width: 15,
-    points: [[0, 0], [90, 0], [140, 25], [145, 70], [110, 92], [60, 78], [32, 98], [45, 140], [100, 150], [150, 178], [130, 222], [60, 228], [-20, 212], [-62, 172], [-50, 122], [-82, 80], [-72, 30], [-40, 5]],
-    boosts: [0.1, 0.55, 0.8], boxes: [0.16, 0.42, 0.7],
-    theme: { sky: 0xf6c38b, fog: 0xf3d2a6, ground: 0xd9a35f, wall: 0xb45309, wallTop: 0x78350f, curbA: 0xf97316, curbB: 0xfef3c7, scenery: 'cacti', sun: 0xfff1d6 },
+    points: [[0, 0, 0], [90, 0, 0], [140, 25, 2], [145, 70, 5], [110, 92, 8], [60, 78, 11], [32, 98, 14], [45, 140, 16], [100, 150, 17], [150, 160, 17], [205, 170, 12], [225, 205, 8], [170, 230, 5], [60, 228, 4], [-20, 212, 2], [-62, 172, 2], [-50, 122, 1], [-82, 80, 0], [-72, 30, 0], [-40, 5, 0]],
+    boosts: [0.1, 0.8], boxes: [0.16, 0.42, 0.72], ramps: [17], gliders: [[9, 10]],
+    theme: { sky: 0xf6c38b, fog: 0xf3d2a6, ground: 0xd9a35f, dirt: 0xa0612e, wall: 0xb45309, wallTop: 0x78350f, curbA: 0xf97316, curbB: 0xfef3c7, scenery: 'cacti', sun: 0xfff1d6 },
   },
   {
-    id: 'neon', name: '네온 시티', desc: '야경 속 직선 질주와 직각 코너', emoji: '🌃',
-    scale: 1.35, width: 16,
-    points: [[0, 0], [120, 0], [160, 15], [175, 55], [172, 140], [150, 176], [110, 180], [90, 150], [82, 112], [52, 96], [12, 110], [-8, 150], [-40, 175], [-90, 170], [-112, 130], [-106, 40], [-80, 10], [-40, 0]],
-    boosts: [0.08, 0.35, 0.68], boxes: [0.18, 0.5, 0.83],
-    theme: { sky: 0x0b1026, fog: 0x14183a, ground: 0x1f2937, wall: 0x22d3ee, wallTop: 0xf472b6, curbA: 0xa855f7, curbB: 0x22d3ee, scenery: 'city', sun: 0x9fb4ff, night: true },
+    id: 'neon', name: '네온 시티', desc: '8자 고가도로를 넘나드는 야경 코스', emoji: '🌃',
+    scale: 1.3, width: 16,
+    points: [[-20, -75, 0], [60, -70, 0], [100, -30, 0], [90, 30, 1], [40, 70, 6], [0, 95, 11], [-50, 125, 11], [-90, 170, 8], [-60, 230, 5], [10, 250, 3], [80, 230, 1], [100, 180, 0], [60, 125, 0], [0, 95, 0], [-50, 65, 0], [-90, 20, 0], [-80, -45, 0]],
+    boosts: [0.04, 0.33, 0.7], boxes: [0.15, 0.5, 0.82], ramps: [9], bridges: [[4, 7]],
+    theme: { sky: 0x0b1026, fog: 0x14183a, ground: 0x1f2937, dirt: 0x334155, wall: 0x22d3ee, wallTop: 0xf472b6, curbA: 0xa855f7, curbB: 0x22d3ee, scenery: 'city', sun: 0x9fb4ff, night: true },
   },
   {
-    id: 'snow', name: '눈꽃 산길', desc: 'S자 연속 코너가 이어지는 설산', emoji: '❄️',
+    id: 'snow', name: '눈꽃 산길', desc: '설산 정상까지 오른 뒤 글라이더로 하강', emoji: '❄️',
     scale: 1.35, width: 15,
-    points: [[0, 0], [70, -6], [120, 10], [140, 50], [115, 80], [80, 70], [55, 95], [70, 135], [40, 170], [-10, 165], [-30, 128], [-70, 120], [-100, 85], [-90, 40], [-50, 12]],
-    boosts: [0.04, 0.5], boxes: [0.22, 0.52, 0.8],
-    theme: { sky: 0xc7d8ea, fog: 0xe2ecf6, ground: 0xf1f5f9, wall: 0x93c5fd, wallTop: 0x1d4ed8, curbA: 0x2563eb, curbB: 0xffffff, scenery: 'pines', sun: 0xffffff },
+    points: [[0, 0, 0], [70, -6, 0], [120, 10, 2], [140, 50, 5], [115, 80, 8], [80, 70, 11], [55, 95, 14], [70, 135, 17], [40, 170, 20], [-10, 172, 20], [-65, 172, 14], [-100, 150, 10], [-110, 100, 6], [-90, 45, 2], [-50, 12, 0]],
+    boosts: [0.04, 0.5], boxes: [0.2, 0.5, 0.82], ramps: [12], gliders: [[9, 10]],
+    theme: { sky: 0xc7d8ea, fog: 0xe2ecf6, ground: 0xf1f5f9, dirt: 0xcbd5e1, wall: 0x93c5fd, wallTop: 0x1d4ed8, curbA: 0x2563eb, curbB: 0xffffff, scenery: 'pines', sun: 0xffffff },
+  },
+  {
+    id: 'skygarden', name: '구름 정원', desc: '하늘에 떠 있는 길, 활공 구간 두 곳', emoji: '☁️',
+    scale: 1.4, width: 15,
+    points: [[0, 0, 24], [70, 0, 24], [120, 30, 26], [135, 85, 29], [110, 125, 31], [80, 128, 31], [20, 128, 24], [-20, 100, 24], [-60, 75, 23], [-100, 80, 25], [-130, 45, 27], [-130, 5, 28], [-120, -45, 23], [-70, -40, 22], [-30, -25, 23]],
+    boosts: [0.08, 0.6], boxes: [0.18, 0.45, 0.75], ramps: [1], gliders: [[5, 6], [11, 12]], floating: true,
+    theme: { sky: 0x60a5fa, fog: 0xbfdbfe, ground: 0xf8fafc, dirt: 0xe9d5ff, wall: 0xfbcfe8, wallTop: 0xa855f7, curbA: 0xf472b6, curbB: 0xffffff, scenery: 'clouds', sun: 0xffffff },
   },
 ];
 

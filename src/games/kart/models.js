@@ -137,12 +137,29 @@ export function buildRacer(ch, kart) {
   shadow.scale.set(0.9, 1.3, 1);
   shadow.position.y = 0.03;
   root.add(shadow);
+  // 글라이더 날개 (활공 중에만 보임)
+  const glider = new THREE.Group();
+  const wingMat = new THREE.MeshLambertMaterial({ color: ch.kartColor, side: THREE.DoubleSide });
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.08, 1.4), wingMat);
+  wing.position.y = 2.6;
+  glider.add(wing);
+  for (const s of [-1, 1]) {
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.09, 1.2), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    tip.position.set(s * 2.4, 2.62, 0.05);
+    glider.add(tip);
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.6, 5), new THREE.MeshLambertMaterial({ color: 0x374151 }));
+    strut.position.set(s * 0.6, 1.85, -0.2);
+    strut.rotation.z = s * 0.35;
+    glider.add(strut);
+  }
+  glider.visible = false;
+  body.add(glider);
   // 방어막
   const shield = new THREE.Mesh(new THREE.SphereGeometry(1.9, 16, 12), new THREE.MeshBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.25, depthWrite: false }));
   shield.position.y = 0.9;
   shield.visible = false;
   root.add(shield);
-  return { root, body, wheels: k.wheels, flames: k.flames, head: c.head, shadow, shield };
+  return { root, body, wheels: k.wheels, flames: k.flames, head: c.head, shadow, shield, glider };
 }
 
 // ---------------- 아이템 모델 ----------------

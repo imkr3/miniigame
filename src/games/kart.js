@@ -10,8 +10,9 @@ import { buildRacer, buildItemBox, buildItemMesh, Sparks } from './kart/models.j
 // - 아이템 박스: 순위가 낮을수록 강한 아이템, 출발 직전 가속 = 로켓 스타트
 const W = 640, H = 360;
 const HOP_V = 4.4, GRAV = 18;
-const DRIFT_LV = [0.7, 1.45, 2.35];           // 드리프트 단계 시간
-const DRIFT_BOOST = [0, 0.55, 0.95, 1.45];    // 단계별 미니 터보 시간
+const DRIFT_LV = [0.6, 1.2, 1.9];             // 드리프트 단계 시간
+const DRIFT_BOOST = [0, 0.7, 1.1, 1.6];       // 단계별 미니 터보 시간
+const TURBO_NAMES = ['', '미니 터보!', '슈퍼 터보!', '울트라 터보!'];
 const SPARK_COLORS = [0xffffff, 0x60a5fa, 0xfb923c, 0xc084fc];
 const RANK_POINTS = [1000, 800, 650, 520, 420, 320, 220, 120];
 const DIFF = { easy: { skill: 0.86, rubber: 0.6, items: 0.5 }, normal: { skill: 0.94, rubber: 1, items: 1 }, hard: { skill: 1.0, rubber: 1.3, items: 1.4 } };
@@ -25,8 +26,8 @@ export default class Kart extends GameBase {
   static meta = {
     id: 'kart',
     title: '카트 레이스',
-    description: '캐릭터와 카트를 골라 8명이 겨루는 3D 레이스! 점프+방향키로 드리프트하면 불꽃 색에 따라 터보가 붙어요. 아이템 박스로 역전을 노리세요.',
-    controls: '↑ 가속 · ↓ 브레이크 · ←→ 조향 · Space/Shift 점프·드리프트(누른 채 꺾기) · X/E 아이템',
+    description: '캐릭터와 카트를 골라 8명이 겨루는 3D 레이스! 드리프트 후 미니 터보, 점프대 트릭, 글라이더 활공, 아이템으로 역전을 노리세요.',
+    controls: '↑ 가속 · ↓ 브레이크 · ←→ 조향 · Space/Shift 드리프트(누른 채 꺾기, 떼면 미니 터보) · 점프대에서 Space = 트릭 · X/E 아이템',
     touchControls: '자동 가속 · ◀▶ 조향 · 드리프트 버튼(누른 채 꺾기) · 아이템 · 브레이크 · 📱 가로 화면 추천',
   };
   static bindings = {
@@ -143,7 +144,7 @@ export default class Kart extends GameBase {
     if (this.preview) this.dyn.remove(this.preview.root);
     this.preview = buildRacer(CHARACTERS[this.sel.char], KARTS[this.sel.kart]);
     const s = this.track.samples[0];
-    this.preview.root.position.set(s.x, 0, s.z);
+    this.preview.root.position.set(s.x, s.y, s.z);
     this.dyn.add(this.preview.root);
   }
 
@@ -161,23 +162,25 @@ export default class Kart extends GameBase {
       const isPlayer = ci === this.sel.char;
       const ch = CHARACTERS[ci], kart = isPlayer ? KARTS[this.sel.kart] : KARTS[Math.floor(Math.random() * KARTS.length)];
       const back = 7 + slot * 4.2, p = tr.at(tr.length - back);
+      const y0 = p.y;
       const side = slot % 2 ? -1 : 1;
       const model = buildRacer(ch, kart);
       this.dyn.add(model.root);
       return {
         ch, kart, isPlayer, model, stats: combineStats(ch, kart),
         x: p.x + p.nx * tr.hw * 0.42 * side, z: p.z + p.nz * tr.hw * 0.42 * side, h: Math.atan2(p.tx, p.tz),
-        speed: 0, y: 0, vy: 0, slip: 0, drifting: false, driftDir: 0, driftT: 0, boostT: 0, spinT: 0, spinA: 0, shieldT: 0, invT: 0,
+        speed: 0, y: y0, vy: 0, slip: 0, drifting: false, driftDir: 0, driftT: 0, boostT: 0, spinT: 0, spinA: 0, shieldT: 0, invT: 0,
         item: null, uses: 0, roll: 0, idx: p.i, lastD: tr.length - back, progress: -back, finished: false, finishTime: 0,
         lap: 1, lapStart: 0, lapTimes: [], rank: slot + 1, padCd: 0, startCharge: null,
         lane: (Math.random() - 0.5) * 1.2, laneT: 0, aiItemT: 2 + Math.random() * 3, aiDriftT: 0, skill: diff.skill * (0.97 + Math.random() * 0.06),
-        stall: 0, wrongT: 0, hopReq: false,
+        stall: 0, wrongT: 0, hopReq: false, grounded: true, gliding: false, airT: 0, canTrick: false, trick: false, trickA: 0,
+        steerS: 0, camH: Math.atan2(p.tx, p.tz), safeD: tr.length - back, respawnT: 0, pitch: 0,
       };
     });
     this.player = this.racers.find((r) => r.isPlayer);
     for (const r of this.racers) this.syncModel(r, 0);
     // 아이템 박스
-    this.boxes = tr.boxSpots.map((s) => { const m = buildItemBox(); m.position.set(s.x, 1.1, s.z); this.dyn.add(m); return { ...s, mesh: m, respawn: 0 }; });
+    this.boxes = tr.boxSpots.map((s) => { const m = buildItemBox(); m.position.set(s.x, s.y + 1.1, s.z); this.dyn.add(m); return { ...s, mesh: m, respawn: 0 }; });
     this.objs = [];
     this.laps = laps;
     this.phase = 'countdown';
@@ -252,7 +255,7 @@ export default class Kart extends GameBase {
     if (this.phase === 'select') { if (this.preview) this.preview.root.rotation.y += dt * 0.6; return; }
     for (const b of this.boxes) {
       b.mesh.rotation.y += dt * 1.6; b.mesh.rotation.x += dt * 0.7;
-      b.mesh.position.y = 1.1 + Math.sin(performance.now() / 300 + b.x) * 0.15;
+      b.mesh.position.y = b.y + 1.1 + Math.sin(performance.now() / 300 + b.x) * 0.15;
       if (b.respawn > 0) { b.respawn -= dt; b.mesh.visible = b.respawn <= 0; }
     }
 
@@ -316,70 +319,137 @@ export default class Kart extends GameBase {
     r.shieldT = Math.max(0, r.shieldT - dt);
     r.invT = Math.max(0, r.invT - dt);
     r.padCd = Math.max(0, r.padCd - dt);
+    r.respawnT = Math.max(0, r.respawnT - dt);
+    // 조향 입력을 부드럽게 (키보드도 확 꺾이지 않도록)
+    r.steerS += (inp.steer - r.steerS) * Math.min(1, dt * (r.isPlayer ? 7 : 10));
+    const steer = r.steerS;
 
     const boosting = r.boostT > 0;
     let maxS = st.maxSpeed * (r.rubber ?? 1);
-    if (r.offroad && !boosting) maxS *= st.offroad;
-    if (boosting) maxS *= 1.33;
-    if (inp.accel) {
+    if (r.offroad && !boosting && r.grounded) maxS *= st.offroad;
+    if (boosting) maxS *= 1.3;
+    if (r.gliding) {
+      r.speed += (Math.max(24, Math.min(r.speed, maxS)) - r.speed) * dt * 0.5; // 활공 중엔 속도 유지
+    } else if (inp.accel) {
       if (r.speed < maxS) r.speed += st.accel * (boosting ? 2.2 : 1) * (1 - Math.max(0, r.speed) / maxS * 0.55) * dt;
-      else r.speed = Math.max(maxS, r.speed - 14 * dt);
+      else r.speed = Math.max(maxS, r.speed - 12 * dt);
     } else if (inp.brake) {
       r.speed -= (r.speed > 0 ? 24 : 9) * dt;
       r.speed = Math.max(r.speed, -9);
     } else {
       r.speed -= Math.sign(r.speed) * Math.min(Math.abs(r.speed), 7 * dt);
-      if (r.speed > maxS) r.speed = Math.max(maxS, r.speed - 14 * dt);
+      if (r.speed > maxS) r.speed = Math.max(maxS, r.speed - 12 * dt);
     }
 
-    // 점프 → 드리프트
-    if (inp.hop && r.y <= 0.01 && !spinning) {
-      r.vy = HOP_V;
-      if (Math.abs(inp.steer) > 0.2 && r.speed > 11) { r.drifting = true; r.driftDir = Math.sign(inp.steer); r.driftT = 0; }
-      if (r.isPlayer) this.sound('jump');
+    // 점프(홉) → 드리프트 / 점프대 공중에서는 트릭
+    if (inp.hop && !spinning) {
+      if (r.grounded) {
+        r.vy = HOP_V; r.grounded = false; r.airT = 0; r.canTrick = false;
+        if (Math.abs(inp.steer) > 0.2 && r.speed > 11) { r.drifting = true; r.driftDir = Math.sign(inp.steer); r.driftT = 0; }
+        if (r.isPlayer) this.sound('jump');
+      } else if (r.canTrick && r.airT < 0.9) {
+        r.trick = true; r.canTrick = false;
+        if (r.isPlayer) this.sound('tick');
+      }
     }
-    if (!r.drifting && inp.drift && r.y > 0.01 && Math.abs(inp.steer) > 0.2 && r.speed > 11 && r.vy > 0) { r.drifting = true; r.driftDir = Math.sign(inp.steer); r.driftT = 0; }
+    if (!r.drifting && inp.drift && !r.grounded && !r.gliding && !r.canTrick && Math.abs(inp.steer) > 0.2 && r.speed > 11 && r.vy > 0) {
+      r.drifting = true; r.driftDir = Math.sign(inp.steer); r.driftT = 0;
+    }
     if (r.drifting) {
-      if (!inp.drift || r.speed < 8 || spinning) this.endDrift(r);
-      else if (r.y <= 0.01) r.driftT += dt * (1 + 0.7 * Math.max(0, inp.steer * r.driftDir));
+      if (!inp.drift || r.speed < 8 || spinning || r.gliding) this.endDrift(r);
+      else if (r.grounded) r.driftT += dt * (1 + 0.6 * Math.max(0, steer * r.driftDir));
     }
 
-    // 조향 (오른쪽 = 각도 감소)
+    // 조향 (오른쪽 = 각도 감소). 빠를수록 덜 꺾이고, 드리프트는 바깥/안쪽 조절 폭이 넓음
+    const spF = clamp(Math.abs(r.speed) / 9, 0, 1) * (1 - 0.3 * clamp(Math.abs(r.speed) / st.maxSpeed, 0, 1));
     let turn;
-    const spF = clamp(Math.abs(r.speed) / 9, 0, 1);
-    if (r.drifting) turn = r.driftDir * (0.72 + 0.48 * inp.steer * r.driftDir) * st.turn * 1.08;
-    else turn = inp.steer * st.turn * spF * (r.speed >= 0 ? 1 : -1) * (boosting ? 0.85 : 1);
-    if (r.y > 0.01 && !r.drifting) turn *= 0.6;
+    if (r.gliding) turn = steer * st.turn * 0.8;
+    else if (r.drifting) turn = r.driftDir * (0.5 + 0.35 * steer * r.driftDir) * st.turn * 1.25;
+    else turn = steer * st.turn * spF * (r.speed >= 0 ? 1 : -1) * (boosting ? 0.9 : 1);
+    if (!r.grounded && !r.drifting && !r.gliding) turn *= 0.5;
     r.h -= turn * dt;
-    r.slip += ((r.drifting ? r.driftDir * 0.32 : 0) - r.slip) * Math.min(1, dt * 6);
+    r.slip += ((r.drifting ? r.driftDir * 0.24 : 0) - r.slip) * Math.min(1, dt * 5);
     const mv = r.h + r.slip;
     r.x += Math.sin(mv) * r.speed * dt;
     r.z += Math.cos(mv) * r.speed * dt;
-    r.vy -= GRAV * dt; r.y += r.vy * dt;
-    if (r.y < 0) { r.y = 0; r.vy = 0; }
 
-    // 트랙 위치 / 벽
+    // 트랙 위치
+    const prevD = r.lastD;
     const n = tr.nearest(r.x, r.z, r.idx);
     r.idx = n.i;
+    const inGap = tr.inGap(n.d);
+    const onTrack = Math.abs(n.lat) <= tr.wall + 0.3 && !inGap;
+    const groundY = onTrack ? n.y : (tr.def.floating || inGap ? -Infinity : 0);
     r.offroad = Math.abs(n.lat) > tr.hw + tr.curb * 0.6;
+
+    // 높이: 땅에 붙어 경사를 따라가거나, 공중이면 중력 (글라이더는 천천히)
+    if (r.grounded && groundY > -Infinity && r.y - groundY < 0.7) {
+      r.y = groundY; r.vy = 0;
+      const fwd = Math.sin(r.h) * n.s.tx + Math.cos(r.h) * n.s.tz;
+      r.speed -= n.s.slope * fwd * 4 * dt; // 오르막 감속 · 내리막 가속
+      r.pitch = -Math.atan(n.s.slope * fwd);
+    } else {
+      r.grounded = false;
+      r.airT += dt;
+      const g = r.gliding ? (r.vy > 0 ? 9 : 5) : GRAV;
+      r.vy -= g * dt;
+      if (r.gliding) {
+        r.vy = Math.max(r.vy, -4.5);
+        // 활공 보정: 코스 가운데 쪽으로 살짝 당기고, 진행 방향도 코스를 향해 조금씩
+        if (Math.abs(n.lat) > tr.hw * 0.5) { const k = Math.sign(n.lat) * 3 * dt; r.x -= n.s.nx * k; r.z -= n.s.nz * k; }
+        r.h += wrapAngle(Math.atan2(n.s.tx, n.s.tz) - r.h) * Math.min(1, dt * 0.8);
+      }
+      const prevY = r.y;
+      r.y += r.vy * dt;
+      r.pitch += ((r.gliding ? 0.05 : -r.vy * 0.015) - r.pitch) * Math.min(1, dt * 4);
+      if (r.trick) r.trickA += dt * 16;
+      if (r.y <= groundY) {
+        // 낭떠러지 끝에 너무 낮게 도착 = 절벽에 부딪힘 → 추락 처리
+        if (groundY - prevY > 2.5) { this.respawn(r); this.syncModel(r, 0, dt); return; }
+        this.land(r, groundY);
+      }
+    }
+
+    // 벽 (공중으로 넘어가는 중이 아니면)
     const lim = tr.wall - 1.0;
-    if (Math.abs(n.lat) > lim) {
+    if (Math.abs(n.lat) > lim && !inGap && r.y < n.y + 1.0) {
       const sgn = Math.sign(n.lat), push = Math.abs(n.lat) - lim;
       r.x -= n.s.nx * sgn * push; r.z -= n.s.nz * sgn * push;
       if (r.speed > 6) {
-        r.speed *= 0.6;
-        if (r.isPlayer) { this.sound('lock'); this.shake(3, 0.15); }
+        r.speed *= 0.7;
+        if (r.isPlayer) { this.sound('lock'); this.shake(2, 0.12); }
       }
-      // 벽을 따라 미끄러지도록 방향을 살짝 트랙 쪽으로
+      // 벽을 따라 미끄러지도록 방향을 트랙 쪽으로 살짝
       const ta = Math.atan2(n.s.tx, n.s.tz);
-      const fwd = Math.cos(wrapAngle(r.h - ta)) >= 0 ? ta : ta + Math.PI;
-      r.h += wrapAngle(fwd - r.h) * 0.15;
+      const fwdA = Math.cos(wrapAngle(r.h - ta)) >= 0 ? ta : ta + Math.PI;
+      r.h += wrapAngle(fwdA - r.h) * 0.2;
+    }
+
+    // 추락 → 코스로 복귀
+    if (r.y < n.y - 10 || (r.grounded && !onTrack)) { this.respawn(r); this.syncModel(r, 0, dt); return; }
+    if (r.grounded && onTrack && Math.abs(n.lat) < tr.hw) r.safeD = n.d;
+
+    // 점프대 / 글라이더 발사대
+    let dd = n.d - prevD;
+    if (dd < -tr.length / 2) dd += tr.length;
+    if (dd > tr.length / 2) dd -= tr.length;
+    if (r.grounded && dd > 0 && Math.abs(n.lat) < tr.hw + 1) {
+      for (const ramp of tr.ramps) {
+        if (!tr.inRange(ramp.d, prevD, n.d)) continue;
+        r.grounded = false; r.airT = 0; r.canTrick = true; r.trick = false; r.trickA = 0;
+        if (ramp.glide) {
+          r.vy = 6.5; r.gliding = true; r.speed = Math.max(r.speed, 27);
+          if (r.drifting) this.endDrift(r);
+          if (r.isPlayer) { this.msg = { text: '🪂 글라이더!', t: 1 }; this.sound('power'); }
+        } else {
+          r.vy = 7.5;
+          if (r.isPlayer) { this.sound('jump'); this.msg = { text: '점프! Space로 트릭', t: 0.9 }; }
+        }
+        if (!r.isPlayer && Math.random() < r.skill - 0.45) r.trick = true;
+      }
     }
 
     // 진행 거리 (랩 계산)
-    let dd = n.d - r.lastD;
-    if (dd < -tr.length / 2) dd += tr.length;
-    if (dd > tr.length / 2) dd -= tr.length;
     r.progress += dd;
     r.lastD = n.d;
     const lap = Math.floor(r.progress / tr.length) + 1;
@@ -401,16 +471,16 @@ export default class Kart extends GameBase {
 
     // 가속 발판
     for (const pad of tr.boostPads) {
-      if (r.padCd <= 0 && (r.x - pad.x) ** 2 + (r.z - pad.z) ** 2 < 9) {
+      if (r.padCd <= 0 && r.grounded && (r.x - pad.x) ** 2 + (r.z - pad.z) ** 2 < 9 && Math.abs(r.y - pad.y) < 2) {
         r.boostT = Math.max(r.boostT, 1.1); r.padCd = 1;
         if (r.isPlayer) this.sound('power');
       }
     }
     // 아이템 박스
     for (const b of this.boxes) {
-      if (b.respawn > 0 || (r.x - b.x) ** 2 + (r.z - b.z) ** 2 > 3.2) continue;
+      if (b.respawn > 0 || (r.x - b.x) ** 2 + (r.z - b.z) ** 2 > 3.2 || Math.abs(r.y - b.y) > 2.5) continue;
       b.respawn = 2.2; b.mesh.visible = false;
-      this.sparks.emit(b.x, 1.2, b.z, 0xfde047, 0, 4, 0, 0.5);
+      this.sparks.emit(b.x, b.y + 1.2, b.z, 0xfde047, 0, 4, 0, 0.5);
       if (!r.item && r.roll <= 0) { r.roll = 1.1; if (r.isPlayer) this.sound('power'); }
     }
     if (r.roll > 0) {
@@ -422,19 +492,42 @@ export default class Kart extends GameBase {
       }
     }
 
-    // 효과: 드리프트 불꽃, 부스트 불꽃, 풀밭 먼지
+    // 효과: 드리프트 불꽃, 풀밭 먼지
     const lvl = this.driftLevel(r);
-    if (r.drifting && r.y <= 0.01 && Math.random() < 0.9) {
-      for (const s of [-1, 1]) {
-        const lx = s * 0.75, lz = -1.0;
+    if (r.drifting && r.grounded && Math.random() < 0.9) {
+      for (const sd of [-1, 1]) {
+        const lx = sd * 0.75, lz = -1.0;
         const wx = r.x + Math.cos(r.h) * lx + Math.sin(r.h) * lz, wz = r.z - Math.sin(r.h) * lx + Math.cos(r.h) * lz;
-        this.sparks.emit(wx, 0.2, wz, SPARK_COLORS[lvl], (Math.random() - 0.5) * 3, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 3, 0.25);
+        this.sparks.emit(wx, r.y + 0.2, wz, SPARK_COLORS[lvl], (Math.random() - 0.5) * 3, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 3, 0.25);
       }
     }
-    if (r.offroad && Math.abs(r.speed) > 6 && Math.random() < 0.5) {
-      this.sparks.emit(r.x - Math.sin(r.h) * 1.2, 0.3, r.z - Math.cos(r.h) * 1.2, this.track.def.theme.ground, (Math.random() - 0.5) * 2, 2, (Math.random() - 0.5) * 2, 0.4);
+    if (r.offroad && r.grounded && Math.abs(r.speed) > 6 && Math.random() < 0.5) {
+      this.sparks.emit(r.x - Math.sin(r.h) * 1.2, r.y + 0.3, r.z - Math.cos(r.h) * 1.2, this.track.def.theme.ground, (Math.random() - 0.5) * 2, 2, (Math.random() - 0.5) * 2, 0.4);
     }
-    this.syncModel(r, lvl);
+    this.syncModel(r, lvl, dt);
+  }
+
+  land(r, groundY) {
+    r.y = groundY; r.vy = 0; r.grounded = true;
+    const wasGliding = r.gliding;
+    r.gliding = false; r.canTrick = false;
+    if (r.trick) {
+      r.trick = false; r.trickA = 0;
+      r.boostT = Math.max(r.boostT, 0.9);
+      r.speed = Math.max(r.speed, r.stats.maxSpeed * 1.05);
+      if (r.isPlayer) { this.msg = { text: '트릭 성공! 부스트', t: 0.9 }; this.sound('bonus'); }
+    } else if (r.isPlayer && (wasGliding || r.airT > 0.5)) this.sound('land');
+    r.airT = 0;
+  }
+
+  respawn(r) {
+    const tr = this.track;
+    const p = tr.at(r.safeD - 4);
+    Object.assign(r, {
+      x: p.x, z: p.z, y: p.y + 2.5, vy: 0, h: Math.atan2(p.tx, p.tz), speed: 0, grounded: false, gliding: false,
+      drifting: false, spinT: 0, trick: false, canTrick: false, idx: p.i, respawnT: 1.6, camH: Math.atan2(p.tx, p.tz),
+    });
+    if (r.isPlayer) { this.msg = { text: '코스로 복귀!', t: 1.2 }; this.sound('hit'); }
   }
 
   driftLevel(r) { return !r.drifting ? 0 : r.driftT >= DRIFT_LV[2] ? 3 : r.driftT >= DRIFT_LV[1] ? 2 : r.driftT >= DRIFT_LV[0] ? 1 : 0; }
@@ -443,30 +536,46 @@ export default class Kart extends GameBase {
     const lvl = this.driftLevel(r);
     r.drifting = false;
     if (lvl > 0) {
+      // 미니 터보: 즉시 속도가 확 붙고 일정 시간 부스트
       r.boostT = Math.max(r.boostT, DRIFT_BOOST[lvl]);
-      if (r.isPlayer) { this.sound('bonus'); if (lvl === 3) this.msg = { text: '울트라 터보!', t: 0.8 }; }
+      r.speed = Math.max(r.speed, r.stats.maxSpeed * (1.06 + lvl * 0.06));
+      r.turboFlash = 0.35;
+      if (r.isPlayer) {
+        this.sound(lvl >= 2 ? 'levelup' : 'bonus');
+        this.msg = { text: TURBO_NAMES[lvl], t: 0.8, color: hex(SPARK_COLORS[lvl]) };
+        for (let i = 0; i < 18; i++) this.sparks.emit(r.x - Math.sin(r.h) * 1.4, r.y + 0.5, r.z - Math.cos(r.h) * 1.4, SPARK_COLORS[lvl], (Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6, 0.45);
+      }
     }
   }
 
-  syncModel(r, lvl) {
+  syncModel(r, lvl, dt = 1 / 60) {
     const m = r.model;
     m.root.position.set(r.x, r.y, r.z);
+    m.root.rotation.order = 'YXZ';
     m.root.rotation.y = r.h;
-    // 드리프트 땐 차체를 바깥쪽으로 틀고 기울임, 스핀은 빙글빙글
-    const yaw = r.spinT > 0 ? r.spinA : r.slip * 1.4;
+    m.root.rotation.x = r.pitch;
+    m.root.visible = r.respawnT <= 0 || Math.floor(r.respawnT * 10) % 2 === 0;
+    // 드리프트 땐 차체를 바깥쪽으로 틀고 기울임, 스핀은 빙글빙글, 트릭은 공중제비
+    const yaw = r.spinT > 0 ? r.spinA : r.slip * 1.3;
     m.body.rotation.y += (yaw - m.body.rotation.y) * (r.spinT > 0 ? 1 : 0.3);
-    m.body.rotation.z = -r.slip * 0.4;
-    m.body.rotation.x = r.y > 0.05 ? -0.08 : 0;
-    m.shadow.position.y = 0.03 - r.y;
-    m.shadow.material.opacity = 0.28 * Math.max(0.3, 1 - r.y / 3);
+    m.body.rotation.z = r.trick ? r.trickA : -r.slip * 0.45 - (r.gliding ? r.steerS * 0.3 : 0);
+    m.glider.visible = r.gliding;
+    if (r.gliding) m.glider.rotation.z = Math.sin(performance.now() / 300) * 0.05;
+    m.shadow.visible = r.grounded || r.y - (r.lastGroundY ?? r.y) < 6;
     for (const w of m.wheels) w.rotation.x += r.speed * 0.04;
+    r.turboFlash = Math.max(0, (r.turboFlash ?? 0) - dt);
     const boost = r.boostT > 0;
     for (const f of m.flames) {
       f.visible = boost;
-      if (boost) { const s = 0.8 + Math.random() * 0.6; f.scale.set(s, s * (r.invT > 0 ? 1.6 : 1), s); f.material.color.setHex(r.invT > 0 ? 0xfde047 : lvl === 3 || r.boostT > 1.2 ? 0xc084fc : 0xf97316); }
+      if (boost) {
+        const s = (0.8 + Math.random() * 0.6) * (r.turboFlash > 0 ? 1.8 : 1);
+        f.scale.set(s, s * (r.invT > 0 ? 1.6 : 1.2), s);
+        f.material.color.setHex(r.invT > 0 ? 0xfde047 : r.boostT > 1.2 ? 0xc084fc : r.boostT > 0.8 ? 0xfb923c : 0x60a5fa);
+      }
     }
     m.shield.visible = r.shieldT > 0 || r.invT > 0;
     if (m.shield.visible) { m.shield.material.color.setHex(r.invT > 0 ? 0xfde047 : 0x60a5fa); m.shield.material.opacity = 0.18 + Math.sin(performance.now() / 120) * 0.06; }
+    if (r.grounded) r.lastGroundY = r.y;
   }
 
   // ---------------- AI ----------------
@@ -492,10 +601,15 @@ export default class Kart extends GameBase {
     const diff = wrapAngle(want - r.h);
     let steer = clamp(-diff * 2.4, -1, 1);
     const curv = tr.curvatureAt(r.idx);
-    const slow = curv > 1.0 && r.speed > r.stats.maxSpeed * 0.8 && !(r.boostT > 0);
-    // 급커브에서는 드리프트
+    // 앞 커브를 돌려면 필요한 회전 속도 vs 이 카트가 낼 수 있는 회전 속도
+    const need = Math.max(0, r.speed) * curv / 30, cap = r.stats.turn * 0.72;
+    const slow = need > cap * 1.15 && !(r.boostT > 0) && r.grounded;
+    // 급커브에서는 드리프트 (드리프트가 더 많이 돌 수 있음)
     let drift = r.drifting, hop = false;
-    if (!r.drifting && curv > 0.75 && r.speed > 16 && r.aiDriftT <= 0 && Math.random() < r.skill * 0.08) { hop = true; drift = true; r.aiDriftT = 2; }
+    if (!r.drifting && r.grounded && need > cap * 0.85 && r.speed > 16 && r.aiDriftT <= 0 && Math.random() < r.skill * 0.15) {
+      hop = true; drift = true; r.aiDriftT = 1.5;
+      steer = Math.sign(-diff) || 1;
+    }
     if (r.drifting) { drift = curv > 0.3 || r.driftT < DRIFT_LV[0]; steer = clamp(-diff * 2.4, -1, 1); }
     r.aiDriftT -= dt;
     // 아이템
@@ -529,8 +643,8 @@ export default class Kart extends GameBase {
     const fx = Math.sin(r.h), fz = Math.cos(r.h);
     const spawn = (kind, dist, extra = {}) => {
       const mesh = buildItemMesh(kind);
-      const o = { type: kind, x: r.x + fx * dist, z: r.z + fz * dist, owner: r, life: 40, arm: 0.4, mesh, idx: r.idx, ...extra };
-      mesh.position.set(o.x, 0, o.z);
+      const o = { type: kind, x: r.x + fx * dist, z: r.z + fz * dist, y: this.track.nearest(r.x + fx * dist, r.z + fz * dist, r.idx).y, owner: r, life: 40, arm: 0.4, mesh, idx: r.idx, ...extra };
+      mesh.position.set(o.x, o.y, o.z);
       mesh.rotation.y = r.h;
       this.dyn.add(mesh);
       this.objs.push(o);
@@ -555,10 +669,10 @@ export default class Kart extends GameBase {
   }
 
   hitRacer(r, kind) {
-    if (r.invT > 0 || r.spinT > 0) return false;
+    if (r.invT > 0 || r.spinT > 0 || r.respawnT > 0) return false;
     if (r.shieldT > 0) {
       r.shieldT = 0;
-      for (let i = 0; i < 16; i++) this.sparks.emit(r.x, 1, r.z, 0x93c5fd, (Math.random() - 0.5) * 8, Math.random() * 5, (Math.random() - 0.5) * 8, 0.5);
+      for (let i = 0; i < 16; i++) this.sparks.emit(r.x, r.y + 1, r.z, 0x93c5fd, (Math.random() - 0.5) * 8, Math.random() * 5, (Math.random() - 0.5) * 8, 0.5);
       if (r.isPlayer) { this.msg = { text: '방어막으로 막았다!', t: 1 }; this.sound('lock'); }
       return true;
     }
@@ -583,14 +697,15 @@ export default class Kart extends GameBase {
         o.x += o.vx * dt; o.z += o.vz * dt;
         const n = tr.nearest(o.x, o.z, o.idx);
         o.idx = n.i;
+        o.y = n.y;
         if (o.type === 'rocket' && Math.abs(n.lat) > tr.wall - 0.5) { // 벽에 튕김
           const sgn = Math.sign(n.lat), vn = o.vx * n.s.nx + o.vz * n.s.nz;
           if (vn * sgn > 0) { o.vx -= 2 * vn * n.s.nx; o.vz -= 2 * vn * n.s.nz; o.bounces++; }
           if (o.bounces > 3) o.life = 0;
         }
-        o.mesh.position.set(o.x, 0.3, o.z);
+        o.mesh.position.set(o.x, o.y + 0.3, o.z);
         o.mesh.rotation.y = Math.atan2(o.vx, o.vz);
-        if (Math.random() < 0.7) this.sparks.emit(o.x - o.vx * 0.03, 0.9, o.z - o.vz * 0.03, 0xfbbf24, 0, 1, 0, 0.25);
+        if (Math.random() < 0.7) this.sparks.emit(o.x - o.vx * 0.03, o.y + 0.9, o.z - o.vz * 0.03, 0xfbbf24, 0, 1, 0, 0.25);
       } else if (o.type === 'mine') {
         o.mesh.children[o.mesh.children.length - 1].visible = Math.floor(performance.now() / 200) % 2 === 0;
       }
@@ -598,10 +713,10 @@ export default class Kart extends GameBase {
         if (o.life <= 0) break;
         if (r === o.owner && o.arm > 0) continue;
         const rad = o.type === 'oil' ? 1.9 : o.type === 'mine' ? 1.6 : 1.7;
-        if ((r.x - o.x) ** 2 + (r.z - o.z) ** 2 > rad * rad || r.y > 1.2) continue;
+        if ((r.x - o.x) ** 2 + (r.z - o.z) ** 2 > rad * rad || Math.abs(r.y - o.y) > 1.5 || r.respawnT > 0) continue;
         if (o.type !== 'oil' || r.invT <= 0) this.hitRacer(r, o.type);
         if (o.type === 'mine' || o.type === 'rocket' || o.type === 'homing') {
-          for (let i = 0; i < 26; i++) this.sparks.emit(o.x, 0.8, o.z, i % 2 ? 0xf97316 : 0xfde047, (Math.random() - 0.5) * 12, Math.random() * 7, (Math.random() - 0.5) * 12, 0.6);
+          for (let i = 0; i < 26; i++) this.sparks.emit(o.x, o.y + 0.8, o.z, i % 2 ? 0xf97316 : 0xfde047, (Math.random() - 0.5) * 12, Math.random() * 7, (Math.random() - 0.5) * 12, 0.6);
           for (const q of this.racers) if (q !== r && o.type === 'mine' && (q.x - o.x) ** 2 + (q.z - o.z) ** 2 < 12) this.hitRacer(q, 'mine');
           if (r.isPlayer || o.owner.isPlayer) this.sound('drop');
         }
@@ -657,16 +772,18 @@ export default class Kart extends GameBase {
     let tx, ty, tz, lx, ly, lz;
     if (intro && this.countT > 1.6) { // 출발 전 카메라가 빙 돌며 다가옴
       const a = p.h + Math.PI * 0.9 * ((this.countT - 1.6) / 2);
-      tx = p.x - Math.sin(a) * (dist + 6); tz = p.z - Math.cos(a) * (dist + 6); ty = 4.5;
-      lx = p.x; ly = 1; lz = p.z;
+      tx = p.x - Math.sin(a) * (dist + 6); tz = p.z - Math.cos(a) * (dist + 6); ty = p.y + 4.5;
+      lx = p.x; ly = p.y + 1; lz = p.z;
     } else if (this.phase === 'finish' || this.phase === 'done') {
       const a = this.raceT * 0.5;
-      tx = p.x + Math.sin(a) * 9; tz = p.z + Math.cos(a) * 9; ty = 4;
-      lx = p.x; ly = 1; lz = p.z;
+      tx = p.x + Math.sin(a) * 9; tz = p.z + Math.cos(a) * 9; ty = p.y + 4;
+      lx = p.x; ly = p.y + 1; lz = p.z;
     } else {
-      const ch = p.h + p.slip * 0.5;
-      tx = p.x - Math.sin(ch) * dist; tz = p.z - Math.cos(ch) * dist; ty = 2.9 + p.y * 0.5;
-      lx = p.x + Math.sin(p.h) * 5; ly = 1.2; lz = p.z + Math.cos(p.h) * 5;
+      // 카메라는 진행 방향을 부드럽게 따라감 (드리프트로 차체가 틀어져도 흔들리지 않게)
+      p.camH += wrapAngle(p.h + p.slip * 0.6 - p.camH) * Math.min(1, dt * 4.5);
+      const ch = p.camH;
+      tx = p.x - Math.sin(ch) * dist; tz = p.z - Math.cos(ch) * dist; ty = p.y + (p.gliding ? 4.2 : 2.9);
+      lx = p.x + Math.sin(ch) * 5; ly = p.y + 1.2; lz = p.z + Math.cos(ch) * 5;
     }
     if (!this.camPos) this.camPos = new THREE.Vector3(tx, ty, tz);
     const k = Math.min(1, dt * 7);
@@ -689,8 +806,8 @@ export default class Kart extends GameBase {
     if (this.phase === 'select' || !this.phase) {
       // 선택 화면: 카트를 돌려 보여주는 카메라
       const s = this.track.samples[0], t = performance.now() / 1000;
-      this.camera3.position.set(s.x + Math.sin(t * 0.2) * 2 - 3, 2.6, s.z + 6.5);
-      this.camera3.lookAt(s.x - 2.4, 0.9, s.z);
+      this.camera3.position.set(s.x + Math.sin(t * 0.2) * 2 - 3, s.y + 2.6, s.z + 6.5);
+      this.camera3.lookAt(s.x - 2.4, s.y + 0.9, s.z);
       this.camera3.fov = 50; this.camera3.updateProjectionMatrix();
     }
     this.renderer.render(this.scene, this.camera3);
@@ -777,12 +894,22 @@ export default class Kart extends GameBase {
     // 속도
     shadowText(`${Math.round(Math.max(0, p.speed) * 3.6 * 1.6)}`, W - 16, H - 30, '900 28px system-ui, sans-serif', p.boostT > 0 ? '#fdba74' : '#fff', 'right');
     shadowText('km/h', W - 16, H - 14, '700 11px system-ui, sans-serif', '#cbd5e1', 'right');
-    // 드리프트 단계
+    // 드리프트 게이지: 파랑 → 주황 → 보라
     if (p.drifting) {
       const lvl = this.driftLevel(p);
-      const names = ['드리프트', '미니 터보', '슈퍼 터보', '울트라 터보'];
-      shadowText(names[lvl], W - 16, H - 66, '800 13px system-ui, sans-serif', hex(SPARK_COLORS[lvl]), 'right');
+      const gx = W - 150, gy = H - 74;
+      ctx.fillStyle = 'rgba(15,23,42,.6)'; roundRect(ctx, gx - 4, gy - 4, 142, 16, 8);
+      const segs = [DRIFT_LV[0], DRIFT_LV[1] - DRIFT_LV[0], DRIFT_LV[2] - DRIFT_LV[1]];
+      let x = gx, t = p.driftT;
+      segs.forEach((len, i) => {
+        const w = 134 * (len / DRIFT_LV[2]);
+        ctx.fillStyle = 'rgba(148,163,184,.25)'; ctx.fillRect(x, gy, w - 2, 8);
+        ctx.fillStyle = hex(SPARK_COLORS[i + 1]); ctx.fillRect(x, gy, (w - 2) * clamp(t / len, 0, 1), 8);
+        t -= len; x += w;
+      });
+      shadowText(lvl ? TURBO_NAMES[lvl].replace('!', ' 준비') : '드리프트 중…', W - 16, gy - 8, '800 12px system-ui, sans-serif', lvl ? hex(SPARK_COLORS[lvl]) : '#fff', 'right');
     }
+    if (p.gliding) shadowText('🪂 활공 중 - ←→로 방향 조절', W / 2, H - 20, '800 13px system-ui, sans-serif', '#bae6fd', 'center');
     this.drawMinimap(ctx);
     // 중앙 메시지 / 카운트다운
     if (this.phase === 'countdown') {
@@ -792,7 +919,7 @@ export default class Kart extends GameBase {
     }
     if (this.msg) {
       ctx.globalAlpha = Math.min(1, this.msg.t / 0.3);
-      shadowText(this.msg.text, W / 2, H / 2 - 30, this.msg.big ? '900 60px system-ui, sans-serif' : '900 28px system-ui, sans-serif', '#fff', 'center');
+      shadowText(this.msg.text, W / 2, H / 2 - 30, this.msg.big ? '900 60px system-ui, sans-serif' : '900 28px system-ui, sans-serif', this.msg.color ?? '#fff', 'center');
       ctx.globalAlpha = 1;
     }
     if (p.wrongT > 0.8 && this.phase === 'race') shadowText('⚠ 역주행!', W / 2, 110, '900 26px system-ui, sans-serif', '#f87171', 'center');
