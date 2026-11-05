@@ -114,6 +114,14 @@ export default class Breakout extends GameBase {
       x: W / 2 - 60, y: TOP - 6, w: 120, h: 40, hp: 20 + this.level * 3, maxHp: 20 + this.level * 3,
       dir: 1, speed: 70 + this.level * 3, bombT: 2, flash: 0,
     } : null;
+    // 7레벨부터: 빈칸이 있는 줄 중 1~2줄이 좌우로 움직임
+    this.movers = [];
+    if (!bossLevel && this.level >= 7) {
+      const rowsWithRoom = [...new Set(this.bricks.map((b) => b.row))].filter((r) => this.bricks.filter((b) => b.row === r).length <= 7 && !this.bricks.some((b) => b.row === r && b.kind === 'metal'));
+      for (const r of rowsWithRoom.sort(() => Math.random() - 0.5).slice(0, this.level >= 12 ? 2 : 1)) {
+        this.movers.push({ row: r, vx: (Math.random() < 0.5 ? -1 : 1) * (40 + this.level * 2) });
+      }
+    }
     this.levelName = bossLevel ? '보스: 거대 벽돌' : layout.name;
     this.banner = { text: `레벨 ${this.level}`, sub: this.levelName, t: 1.8 };
     this.clearT = 0;
@@ -124,7 +132,8 @@ export default class Breakout extends GameBase {
 
   resetBall() {
     const p = this.paddle;
-    this.balls = [{ x: p.x + p.w / 2, y: PADDLE_Y - BALL_R - 1, vx: 0, vy: 0, stuck: true, off: p.w / 2, trail: [] }];
+    this.balls = [{ x: p.x + p.w / 2, y: PADDLE_Y - BALL_R - 1, vx: 0, vy: 0, stuck: true, off: p.w / 2, trail: [], aimed: true }];
+    this.aimT = Math.random() * 6;
     this.drops = [];
     this.lasers = [];
     this.bombs = [];
@@ -170,7 +179,9 @@ export default class Breakout extends GameBase {
   release(b) {
     const p = this.paddle;
     const hit = clamp((b.x - (p.x + p.w / 2)) / (p.w / 2), -1, 1);
-    const a = -Math.PI / 2 + (Math.abs(hit) < 0.1 ? (Math.random() - 0.5) * 0.6 : hit * 0.9);
+    // 처음 발사는 좌우로 흔들리는 조준선 방향, 캐치로 잡은 공은 패들 위치에 따라
+    const a = b.aimed ? this.aimAngle : -Math.PI / 2 + (Math.abs(hit) < 0.1 ? (Math.random() - 0.5) * 0.6 : hit * 0.9);
+    b.aimed = false;
     this.setVelocity(b, a);
     b.stuck = false;
     b.catchT = 0;
@@ -217,6 +228,8 @@ export default class Breakout extends GameBase {
     this.movePaddle(dt);
     const p = this.paddle;
 
+    this.aimT = (this.aimT ?? 0) + dt;
+    this.updateMovers(dt);
     this.updateBoss(dt);
     this.updateDrops(dt);
     this.updateLasers(dt);
@@ -246,6 +259,19 @@ export default class Breakout extends GameBase {
     if (!this.balls.length) return this.loseLife();
 
     if (!this.bricks.some((k) => k.kind !== 'metal') && !this.boss) this.levelClear();
+  }
+
+  get aimAngle() { return -Math.PI / 2 + Math.sin(this.aimT * 1.7) * 0.55; }
+
+  updateMovers(dt) {
+    for (const m of this.movers ?? []) {
+      const row = this.bricks.filter((b) => b.row === m.row);
+      if (!row.length) continue;
+      for (const b of row) b.x += m.vx * dt;
+      const minX = Math.min(...row.map((b) => b.x)), maxX = Math.max(...row.map((b) => b.x + b.w));
+      if (minX < GAP) { for (const b of row) b.x += GAP - minX; m.vx = Math.abs(m.vx); }
+      if (maxX > W - GAP) { for (const b of row) b.x -= maxX - (W - GAP); m.vx = -Math.abs(m.vx); }
+    }
   }
 
   loseLife() {
@@ -455,18 +481,27 @@ export default class Breakout extends GameBase {
 
   // ---------------- 그리기 ----------------
   draw(ctx) {
-    // 배경
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#0f1222'); bg.addColorStop(1, '#0a0b12');
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = 'rgba(148,163,184,.05)'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x <= W; x += 24) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); }
-    for (let y = 0; y <= H; y += 24) { ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); }
-    ctx.stroke();
+    // 배경 (한 번 그려 두고 재사용)
+    this.drawCached(ctx, 'breakout-bg', 0, 0, W, H, (c) => {
+      const bg = c.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, '#0f1222'); bg.addColorStop(1, '#0a0b12');
+      c.fillStyle = bg; c.fillRect(0, 0, W, H);
+      c.strokeStyle = 'rgba(148,163,184,.05)'; c.lineWidth = 1;
+      c.beginPath();
+      for (let x = 0; x <= W; x += 24) { c.moveTo(x + 0.5, 0); c.lineTo(x + 0.5, H); }
+      for (let y = 0; y <= H; y += 24) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
+      c.stroke();
+    });
 
     const now = performance.now() / 1000;
     for (const k of this.bricks ?? []) this.drawBrick(ctx, k, now);
+    // 움직이는 줄 표시
+    for (const m of this.movers ?? []) {
+      const any = this.bricks.find((b) => b.row === m.row);
+      if (!any) continue;
+      ctx.fillStyle = 'rgba(253,224,71,.6)'; ctx.font = '800 10px system-ui, sans-serif';
+      ctx.fillText(m.vx > 0 ? '▶' : '◀', m.vx > 0 ? W - 11 : 2, any.y + 12);
+    }
     for (const k of this.bricks ?? []) k.flash = Math.max(0, (k.flash ?? 0) - 1 / 60);
 
     // 폭발 효과
@@ -509,18 +544,18 @@ export default class Breakout extends GameBase {
 
   drawBrick(ctx, k, now) {
     const flash = (k.flash ?? 0) > 0;
+    // 그라데이션은 벽돌마다 한 번만 만들어 둠 (세로 방향이라 좌우로 움직여도 그대로 사용 가능)
+    if (!k.grad) {
+      k.grad = ctx.createLinearGradient(0, k.y, 0, k.y + k.h);
+      k.grad.addColorStop(0, k.kind === 'metal' ? '#cbd5e1' : k.color); k.grad.addColorStop(1, k.kind === 'metal' ? '#64748b' : shade(k.color));
+    }
     if (k.kind === 'metal') {
-      const g = ctx.createLinearGradient(0, k.y, 0, k.y + k.h);
-      g.addColorStop(0, flash ? '#fff' : '#cbd5e1'); g.addColorStop(1, '#64748b');
-      ctx.fillStyle = g; roundRect(ctx, k.x, k.y, k.w, k.h, 3);
+      ctx.fillStyle = flash ? '#fff' : k.grad; roundRect(ctx, k.x, k.y, k.w, k.h, 3);
       ctx.fillStyle = '#475569';
       for (const x of [k.x + 4, k.x + k.w - 6]) { ctx.beginPath(); ctx.arc(x + 1, k.y + k.h / 2, 1.6, 0, Math.PI * 2); ctx.fill(); }
       return;
     }
-    const g = ctx.createLinearGradient(0, k.y, 0, k.y + k.h);
-    g.addColorStop(0, flash ? '#fff' : k.color);
-    g.addColorStop(1, shade(k.color));
-    ctx.fillStyle = g;
+    ctx.fillStyle = flash ? '#fff' : k.grad;
     roundRect(ctx, k.x, k.y, k.w, k.h, 4);
     ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fillRect(k.x + 3, k.y + 2, k.w - 6, 3);
     if (k.kind === 'tough') { // 남은 체력만큼 테두리 + 금 간 표시
@@ -609,7 +644,13 @@ export default class Breakout extends GameBase {
     if (this.state === 'playing' && this.balls?.some((b) => b.stuck) && this.clearT <= 0) {
       ctx.fillStyle = 'rgba(229,231,235,.7)';
       ctx.font = '600 14px system-ui, sans-serif';
-      ctx.fillText(this.touchMode ? '탭해서 발사' : '클릭 / Space로 발사', W / 2, PADDLE_Y - 40);
+      ctx.fillText(this.touchMode ? '탭해서 발사' : '클릭 / Space로 발사', W / 2, PADDLE_Y - 70);
+      const b = this.balls.find((x) => x.stuck && x.aimed);
+      if (b) { // 조준선 (좌우로 흔들림 → 원하는 순간에 발사)
+        const a = this.aimAngle;
+        ctx.fillStyle = 'rgba(147,197,253,.75)';
+        for (let i = 1; i <= 7; i++) { ctx.beginPath(); ctx.arc(b.x + Math.cos(a) * i * 11, b.y + Math.sin(a) * i * 11, 2.2 - i * 0.18, 0, Math.PI * 2); ctx.fill(); }
+      }
     }
     if (this.combo >= 3) {
       ctx.fillStyle = '#fde047'; ctx.font = '800 13px system-ui, sans-serif';

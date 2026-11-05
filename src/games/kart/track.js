@@ -245,19 +245,25 @@ export class Track {
         for (let k = 1; k < arr.length; k += 6) arr[k] = -0.1; // 아래쪽 꼭짓점을 땅까지 내려 흙둑 옆면으로
         m.geometry.computeVertexNormals();
       }
+      // 고가도로 기둥·상판: 같은 모양을 반복하므로 InstancedMesh 하나로 (그리기 호출 1번)
       const pillarMat = new THREE.MeshLambertMaterial({ color: th.night ? 0x475569 : 0x9ca3af });
+      const pillars = [], slabs = [];
       for (let i = 0; i < N; i += 6) {
         const s = S[i];
         if (!this.onBridge(s.d) || s.y < 1 || gapAt[i]) continue;
-        for (const side of [-1, 1]) {
-          const p = new THREE.Mesh(new THREE.BoxGeometry(1.2, s.y, 1.2), pillarMat);
-          p.position.set(s.x + s.nx * (this.wall - 1) * side, s.y / 2, s.z + s.nz * (this.wall - 1) * side);
-          g.add(p);
-        }
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(this.wall * 2, 0.6, 12.5), pillarMat);
-        slab.position.set(s.x, s.y - 0.35, s.z);
-        slab.rotation.y = Math.atan2(s.tx, s.tz);
-        g.add(slab);
+        for (const side of [-1, 1]) pillars.push({ x: s.x + s.nx * (this.wall - 1) * side, z: s.z + s.nz * (this.wall - 1) * side, h: s.y });
+        slabs.push({ x: s.x, y: s.y - 0.35, z: s.z, r: Math.atan2(s.tx, s.tz) });
+      }
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+      if (pillars.length) {
+        const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1.2, 1, 1.2), pillarMat, pillars.length);
+        pillars.forEach((p, i) => { m4.compose(new THREE.Vector3(p.x, p.h / 2, p.z), q.identity(), new THREE.Vector3(1, p.h, 1)); inst.setMatrixAt(i, m4); });
+        g.add(inst);
+      }
+      if (slabs.length) {
+        const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(this.wall * 2, 0.6, 12.5), pillarMat, slabs.length);
+        slabs.forEach((p, i) => { m4.compose(new THREE.Vector3(p.x, p.y, p.z), q.setFromAxisAngle(up, p.r), new THREE.Vector3(1, 1, 1)); inst.setMatrixAt(i, m4); });
+        g.add(inst);
       }
     }
 
@@ -368,15 +374,13 @@ export class Track {
       ribbon(-sc.half, sc.half, 0.015, 0.015, mat);
       if (this.def.floating) { ribbon(-sc.half, sc.half, -0.8, -0.8, dirtMat); for (const s of [-1, 1]) ribbon(s * sc.half, s * sc.half, -0.8, 0, dirtMat); }
       else if (S.some((s) => s.y > 0.5)) for (const s of [-1, 1]) ribbon(s * sc.half, s * sc.half, 0, 0, dirtMat); // (높은 지름길은 아래 흙둑으로 대충 메움)
-      // 가장자리 노란 말뚝
-      for (let i = 4; i < S.length - 4; i += 5) {
-        for (const sd of [-1, 1]) {
-          const s = S[i];
-          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1, 5), postMat);
-          post.position.set(s.x + s.nx * (sc.half + 0.4) * sd, s.y + 0.5, s.z + s.nz * (sc.half + 0.4) * sd);
-          g.add(post);
-        }
-      }
+      // 가장자리 노란 말뚝 (InstancedMesh)
+      const postPos = [];
+      for (let i = 4; i < S.length - 4; i += 5) for (const sd of [-1, 1]) { const s = S[i]; postPos.push([s.x + s.nx * (sc.half + 0.4) * sd, s.y + 0.5, s.z + s.nz * (sc.half + 0.4) * sd]); }
+      const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.12, 1, 5), postMat, postPos.length);
+      const pm = new THREE.Matrix4();
+      postPos.forEach(([x, y, z], i) => { pm.makeTranslation(x, y, z); posts.setMatrixAt(i, pm); });
+      g.add(posts);
       // 입구 표지판
       const s0 = this.at(sc.dFrom - 10);
       const signTex = canvasTexture(128, 64, (ctx, w, h) => {

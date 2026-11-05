@@ -121,6 +121,37 @@ function buildCharacter(ch) {
   return { group: g, head };
 }
 
+/**
+ * 최적화: 움직이지 않는 부품 중 같은 색끼리 하나의 메시로 합침 (그리기 호출 수 감소)
+ * skip 에 든 객체(바퀴·불꽃 등 따로 움직이는 것)와 그 자식은 그대로 둠
+ */
+function mergeStatic(root, skip) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const skipped = (o) => { for (let p = o; p && p !== root; p = p.parent) if (skip.has(p)) return true; return false; };
+  const buckets = new Map(), remove = [];
+  root.traverse((o) => {
+    if (!o.isMesh || o.material.map || skipped(o)) return;
+    const m = o.material;
+    const key = `${m.type}|${m.color.getHex()}|${m.transparent}|${m.opacity}|${m.side}`;
+    let geo = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    if (geo.index) geo = geo.toNonIndexed();
+    if (!buckets.has(key)) buckets.set(key, { mat: m, pos: [], nor: [] });
+    const b = buckets.get(key);
+    b.pos.push(geo.attributes.position.array);
+    b.nor.push(geo.attributes.normal.array);
+    remove.push(o);
+  });
+  for (const o of remove) { o.parent.remove(o); o.geometry.dispose(); }
+  for (const { mat, pos, nor } of buckets.values()) {
+    const cat = (arrs) => { const out = new Float32Array(arrs.reduce((a, x) => a + x.length, 0)); let off = 0; for (const a of arrs) { out.set(a, off); off += a.length; } return out; };
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(cat(pos), 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(cat(nor), 3));
+    root.add(new THREE.Mesh(geo, mat));
+  }
+}
+
 /** 레이서 모델: root(위치·방향) > body(드리프트 기울기·스핀) > kart + 캐릭터 */
 export function buildRacer(ch, kart) {
   const root = new THREE.Group();
@@ -159,6 +190,7 @@ export function buildRacer(ch, kart) {
   shield.position.y = 0.9;
   shield.visible = false;
   root.add(shield);
+  mergeStatic(body, new Set([...k.wheels, ...k.flames, glider]));
   return { root, body, wheels: k.wheels, flames: k.flames, head: c.head, shadow, shield, glider };
 }
 

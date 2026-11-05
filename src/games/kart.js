@@ -92,7 +92,10 @@ export default class Kart extends GameBase {
   onResize(w, h) {
     if (!this.renderer) return;
     const q = { low: 1, normal: 1.5, high: 2 }[this.cfg?.quality ?? 'normal'] ?? 1.5;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q));
+    this.maxRatio = Math.min(window.devicePixelRatio || 1, q);
+    this.ratio = Math.min(this.ratio ?? this.maxRatio, this.maxRatio);
+    this.viewW = w; this.viewH = h;
+    this.renderer.setPixelRatio(this.ratio);
     this.renderer.setSize(w, h, false);
     this.camera3.aspect = w / h;
     this.camera3.updateProjectionMatrix();
@@ -547,12 +550,13 @@ export default class Kart extends GameBase {
     const inward = r.drifting ? steer * r.driftDir : 0; // +1 안쪽, -1 바깥쪽
     let turn;
     if (r.gliding) turn = steer * st.turn * 0.85;
-    else if (r.drifting) turn = r.driftDir * (0.34 + 0.4 * inward) * st.turn * 1.2;
+    // 드리프트 중엔 항상 드리프트 방향으로만 돎: 안쪽 키 = 빠르게, 반대쪽 키 = 천천히 (반대로 돌거나 반대쪽으로 끌려가지 않음)
+    else if (r.drifting) turn = r.driftDir * (0.4 + 0.3 * inward) * st.turn * 1.2;
     else turn = steer * st.turn * spF * (r.speed >= 0 ? 1 : -1) * (boosting ? 0.9 : 1);
     if (!r.grounded && !r.drifting && !r.gliding) turn *= 0.5;
     r.h -= turn * dt;
-    // 미끄러짐 각: 바깥쪽 키를 누를수록 더 바깥으로 흐름
-    const slipT = r.drifting ? r.driftDir * (0.2 + 0.2 * Math.max(0, -inward)) : 0;
+    // 미끄러짐 각 (드리프트 중 일정)
+    const slipT = r.drifting ? r.driftDir * 0.2 : 0;
     r.slip += (slipT - r.slip) * Math.min(1, dt * 4);
     const mv = r.h + r.slip;
     r.x += Math.sin(mv) * r.speed * dt;
@@ -1084,9 +1088,31 @@ export default class Kart extends GameBase {
       this.camera3.lookAt(s.x - 2.4, s.y + 0.9, s.z);
       this.camera3.fov = 50; this.camera3.updateProjectionMatrix();
     }
-    this.renderer.render(this.scene, this.camera3);
+    // 시작·일시정지·결과 화면에서는 3D를 3프레임에 한 번만 그림 (배터리·발열 절약)
+    this.idleSkip = ((this.idleSkip ?? 0) + 1) % 3;
+    const idle = this.state !== 'playing';
+    if (!idle || this.idleSkip === 0) {
+      this.renderer.render(this.scene, this.camera3);
+      if (!idle) this.adaptResolution();
+    }
     if (this.phase === 'select') return this.drawSelect(ctx);
     this.drawHud(ctx);
+  }
+
+  /** 프레임이 계속 느리면 3D 해상도를 낮추고, 여유가 생기면 다시 올림 */
+  adaptResolution() {
+    const now = performance.now();
+    const dt = now - (this.lastRender ?? now);
+    this.lastRender = now;
+    if (!dt || dt > 250) return; // 탭 전환 등 큰 공백은 무시
+    this.frameAvg = (this.frameAvg ?? 16) * 0.95 + dt * 0.05;
+    this.adaptT = (this.adaptT ?? 0) + dt;
+    if (this.adaptT < 2000) return;
+    this.adaptT = 0;
+    let r = this.ratio;
+    if (this.frameAvg > 24 && r > 0.6) r = Math.max(0.6, r - 0.2);
+    else if (this.frameAvg < 15 && r < this.maxRatio) r = Math.min(this.maxRatio, r + 0.1);
+    if (r !== this.ratio) { this.ratio = r; this.renderer.setPixelRatio(r); this.renderer.setSize(this.viewW, this.viewH, false); }
   }
 
   drawSelect(ctx) {

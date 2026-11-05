@@ -121,6 +121,8 @@ export default class Runner extends GameBase {
   }
 
   loadStage() {
+    this.stageSerial = (this.stageSerial ?? 0) + 1;
+    this.clearCache('runner-tiles-'); this._chunks?.clear();
     const biome = biomeForStage(this.stage, this.biomeOrder);
     this.B = BIOMES[biome];
     const boss = this.stage % 3 === 0;
@@ -916,6 +918,16 @@ export default class Runner extends GameBase {
     ctx.textAlign = 'right';
     ctx.fillText(this.augOrder.slice(-10).join(''), W - 10, 22);
     ctx.textAlign = 'start';
+    // 스테이지 진행도 (보스전 제외)
+    if (this.portal && !this.bossStage) {
+      const bx = W / 2 - 90, k = Math.max(0, Math.min(1, p.x / this.portal.x));
+      ctx.fillStyle = 'rgba(15,23,42,.55)'; roundRect(ctx, bx - 4, 50, 188, 10, 5);
+      ctx.fillStyle = '#334155'; ctx.fillRect(bx, 53, 180, 4);
+      ctx.fillStyle = '#4ade80'; ctx.fillRect(bx, 53, 180 * k, 4);
+      if (this.chests[0]) { const cx = bx + 180 * Math.min(1, this.chests[0].x / this.portal.x); ctx.fillStyle = this.chests[0].open ? '#78350f' : '#fbbf24'; ctx.fillRect(cx - 2, 51, 4, 8); }
+      ctx.font = '10px system-ui'; ctx.fillText('🏁', bx + 182, 60);
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(bx + 180 * k, 55, 3.5, 0, Math.PI * 2); ctx.fill();
+    }
     // 보스 체력
     const b = this.boss;
     if (b && !b.dead) {

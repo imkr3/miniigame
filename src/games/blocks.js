@@ -70,13 +70,15 @@ const LOCK_RESETS = 15;
 
 const rotateCW = (m) => m[0].map((_, i) => m.map((row) => row[i]).reverse());
 const rotateCCW = (m) => m[0].map((_, i) => m.map((row) => row[row.length - 1 - i]));
+const SPRINT_LINES = 40, ULTRA_TIME = 120;
+const fmtCs = (cs) => `${Math.floor(cs / 6000)}:${String(Math.floor(cs / 100) % 60).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`;
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 export default class Blocks extends GameBase {
   static meta = {
     id: 'blocks',
     title: '블록 낙하',
-    description: '가로줄을 채워 없애세요. 회전으로 틈에 끼워 넣는 "스핀"과 연속 쿼드는 점수가 크게 올라요. ⚙ 설정에서 시작 레벨을 고를 수 있어요.',
+    description: '가로줄을 채워 없애세요. 회전으로 틈에 끼워 넣는 "스핀"과 연속 쿼드는 점수가 크게 올라요. ⚙ 설정에서 모드(마라톤·40줄 스프린트·2분 울트라)와 시작 레벨을 고를 수 있어요.',
     controls: '←→ 이동 · ↓ 소프트드롭 · Space 하드드롭 · ↑/X 회전 · Z 반대 회전 · A 180° · C/Shift 보관 (⚙에서 변경)',
     touchControls: '탭 회전 · 좌우로 끌기 이동 · 아래로 끌기 빠르게 · 위로 밀기 보관',
   };
@@ -95,6 +97,8 @@ export default class Blocks extends GameBase {
     up: '시계 방향 회전', rotl: '반시계 회전', rot180: '180° 회전', hold: '보관',
   };
   static settings = [
+    { id: 'mode', label: '모드', type: 'select', default: 'marathon',
+      options: [['marathon', '마라톤 (끝까지)'], ['sprint', '스프린트 (40줄 최단 시간)'], ['ultra', '울트라 (2분 최고 점수)']], tip: '모드마다 기록이 따로 저장돼요. 새 게임부터 적용' },
     { id: 'startLevel', label: '시작 레벨', type: 'range', min: 1, max: 20, default: 1, unit: '',
       tip: '높을수록 처음부터 빠르게 떨어짐 (점수도 레벨만큼 곱해짐). 새 게임부터 적용' },
     { id: 'linesPerLevel', label: '레벨업 줄 수', type: 'range', min: 4, max: 15, default: 8, unit: '줄', tip: '이만큼 줄을 지울 때마다 레벨 +1' },
@@ -222,7 +226,7 @@ export default class Blocks extends GameBase {
 
   /** 꼭대기까지 쌓임 */
   topOut() {
-    if (!this.multi) return this.gameOver('게임 오버', this.statsText());
+    if (!this.multi) { if (this.mode === 'sprint') this.recordValue = 0; return this.gameOver('게임 오버', this.statsText()); }
     const m = this.multi;
     if (m.dead) return;
     m.dead = true;
@@ -275,6 +279,7 @@ export default class Blocks extends GameBase {
     this.rand = this.multi ? seededRandom(this.multi.seed) : Math.random;
     this.incoming = [];
     this.overflow = false;
+    this.sprintDone = false;
     this.countdown = this.multi ? 3 : 0;
     this.board = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
     this.bag = [];
@@ -282,6 +287,10 @@ export default class Blocks extends GameBase {
     this.holdType = -1;
     this.canHold = true;
     this.lines = 0;
+    this.mode = this.multi ? 'battle' : this.cfg.mode;
+    if (this.mode === 'sprint') this.setRecord('blocks-sprint', { lower: true, fmt: fmtCs });
+    else if (this.mode === 'ultra') this.setRecord('blocks-ultra');
+    else this.setRecord('blocks');
     this.startLevel = this.multi ? (this.multi.settings.startLevel ?? 3) : this.cfg.startLevel;
     this.level = this.startLevel;
     this.gravityT = 0;
@@ -473,6 +482,7 @@ export default class Blocks extends GameBase {
     this.clearing = { rows: full, t: 0.18 };
     this.piece = null;
     this.lines += n;
+    if (this.mode === 'sprint' && this.lines >= SPRINT_LINES) this.sprintDone = true;
     const newLevel = this.startLevel + Math.floor(this.lines / this.cfg.linesPerLevel);
     if (newLevel > this.level) {
       this.level = newLevel;
@@ -480,6 +490,20 @@ export default class Blocks extends GameBase {
       this.floatText(BW / 2, ROWS * CELL / 2 + 40, `레벨 ${this.level}`, '#93c5fd', 22);
     } else this.sound(spin || n >= 4 ? 'bonus' : 'clear');
     this.updateInfo();
+  }
+
+  /** 스프린트 완주 / 울트라 시간 종료 */
+  checkModeEnd() {
+    if (this.sprintDone) {
+      this.recordValue = Math.round(this.time * 100);
+      this.gameOver(`${SPRINT_LINES}줄 완료!`, `블록 ${this.stats.pieces}개 · 초당 ${(this.stats.pieces / this.time).toFixed(2)}개 · 스핀 ${this.stats.spins}회`);
+      return true;
+    }
+    if (this.mode === 'ultra' && this.time >= ULTRA_TIME) {
+      this.gameOver('타임 업!', `${this.lines}줄 · 블록 ${this.stats.pieces}개 · 스핀 ${this.stats.spins}회 · 최대 콤보 ${Math.max(0, this.stats.maxCombo)}`);
+      return true;
+    }
+    return false;
   }
 
   finishClear() {
@@ -495,7 +519,11 @@ export default class Blocks extends GameBase {
     return `블록 ${s.pieces}개 · ${this.lines}줄 · 스핀 ${s.spins}회 · 최대 콤보 ${Math.max(0, s.maxCombo)} · ${fmtTime(this.time)}`;
   }
 
-  updateInfo() { this.setInfo(`레벨 ${this.level} · ${this.lines}줄`); }
+  updateInfo() {
+    if (this.mode === 'sprint') this.setInfo(`남은 ${Math.max(0, SPRINT_LINES - this.lines)}줄 · ${fmtCs(Math.round(this.time * 100))}`);
+    else if (this.mode === 'ultra') this.setInfo(`남은 시간 ${fmtTime(Math.max(0, ULTRA_TIME - this.time))} · 레벨 ${this.level}`);
+    else this.setInfo(`레벨 ${this.level} · ${this.lines}줄`);
+  }
 
   /** 한 칸 떨어지는 데 걸리는 시간(초). 레벨이 오를수록 가파르게 빨라지고 15레벨 무렵엔 거의 즉시 낙하 */
   get gravity() {
@@ -546,6 +574,11 @@ export default class Blocks extends GameBase {
         return;
       }
       if (this.multi.dead) return;
+    }
+    if (this.mode === 'sprint' || this.mode === 'ultra') {
+      this.infoT = (this.infoT ?? 0) + dt;
+      if (this.infoT > 0.05) { this.infoT = 0; this.updateInfo(); }
+      if (this.checkModeEnd()) return;
     }
     if (this.callout && (this.callout.t -= dt) <= 0) this.callout = null;
     if (this.dropTrail && (this.dropTrail.t -= dt) <= 0) this.dropTrail = null;
@@ -623,15 +656,18 @@ export default class Blocks extends GameBase {
   }
 
   draw(ctx) {
-    // 보드 배경 + 격자
-    ctx.fillStyle = '#131620';
-    ctx.fillRect(0, 0, BW, ROWS * CELL);
-    ctx.strokeStyle = '#1b1f2c';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 1; x < COLS; x++) { ctx.moveTo(x * CELL + 0.5, 0); ctx.lineTo(x * CELL + 0.5, ROWS * CELL); }
-    for (let y = 1; y < ROWS; y++) { ctx.moveTo(0, y * CELL + 0.5); ctx.lineTo(BW, y * CELL + 0.5); }
-    ctx.stroke();
+    // 보드 배경 + 격자 (한 번 그려 두고 재사용)
+    this.drawCached(ctx, `blocks-grid-${this.mode === 'sprint' ? 's' : 'n'}`, 0, 0, BW, ROWS * CELL, (c) => {
+      c.fillStyle = '#131620';
+      c.fillRect(0, 0, BW, ROWS * CELL);
+      c.strokeStyle = '#1b1f2c';
+      c.lineWidth = 1;
+      c.beginPath();
+      for (let x = 1; x < COLS; x++) { c.moveTo(x * CELL + 0.5, 0); c.lineTo(x * CELL + 0.5, ROWS * CELL); }
+      for (let y = 1; y < ROWS; y++) { c.moveTo(0, y * CELL + 0.5); c.lineTo(BW, y * CELL + 0.5); }
+      c.stroke();
+      if (this.mode === 'sprint') { c.fillStyle = 'rgba(250,204,21,.06)'; c.fillRect(0, 0, BW, ROWS * CELL); }
+    });
 
     this.board.forEach((row, y) => row.forEach((c, x) => { if (c >= 0) this.drawCell(ctx, x * CELL, y * CELL, CELL, COLORS[c]); }));
 

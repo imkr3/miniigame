@@ -400,59 +400,84 @@ export function drawProps(g, ctx) {
 }
 
 // ---------------- 타일 그리기 ----------------
+const STATIC_TILES = new Set([SOLID, ICE, PLAT, SPIKE]);
+const CHUNK = 16; // 타일 16칸씩 묶어서 미리 그려 둠
+
+/** 지형 그리기: 움직이지 않는 타일은 구역별로 캐시, 용암·벨트·무너지는 발판만 매 프레임 */
 export function drawTiles(g, ctx, cam) {
-  const B = g.B, now = performance.now() / 1000;
-  const c0 = Math.max(0, Math.floor(cam / T) - 1), c1 = Math.min(g.cols - 1, Math.ceil((cam + W) / T) + 1);
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = c0; c <= c1; c++) {
-      const t = g.tileAt(c, r);
-      if (!t) continue;
-      const x = c * T, y = r * T;
-      if (t === SOLID || t === ICE) {
-        const top = !isSolid(g.tileAt(c, r - 1));
-        if (B.bricks && !top) { // 성: 벽돌 무늬
-          ctx.fillStyle = B.ground; ctx.fillRect(x, y, T, T);
-          ctx.fillStyle = B.dirt; ctx.fillRect(x, y + 11, T, 2); ctx.fillRect(x + ((r % 2) ? 4 : 16), y, 2, 11); ctx.fillRect(x + ((r % 2) ? 16 : 4), y + 13, 2, 11);
-        } else {
-          ctx.fillStyle = ((c * 7 + r * 13) % 5 === 0) ? B.dirt : B.ground;
-          ctx.fillRect(x, y, T, T);
-        }
-        if (t === ICE) { ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x + 3, y + 7, 9, 2); }
-        if (top) {
-          ctx.fillStyle = B.top; ctx.fillRect(x, y, T, 5);
-          if (!B.bricks && t !== ICE) { ctx.fillRect(x + 4, y + 5, 3, 2); ctx.fillRect(x + 15, y + 5, 3, 3); }
-        }
-      } else if (t === PLAT) {
-        ctx.fillStyle = B.plat;
-        roundRect(ctx, x, y, T, 8, 2);
-        ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(x + T - 2, y, 2, 8);
-      } else if (t === CRUMBLE) {
-        const st = g.crumbles.get(`${c},${r}`);
-        const sx = st && st.st > 0 ? Math.sin(now * 70) * 1.2 : 0;
-        ctx.fillStyle = '#a8a29e';
-        roundRect(ctx, x + 1 + sx, y, T - 2, 9, 2);
-        ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(x + 6 + sx, y); ctx.lineTo(x + 10 + sx, y + 5); ctx.lineTo(x + 8 + sx, y + 9); ctx.moveTo(x + 17 + sx, y); ctx.lineTo(x + 14 + sx, y + 6); ctx.stroke();
-      } else if (t === SPIKE) {
-        ctx.fillStyle = '#cbd5e1';
-        for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(x + i * 8, y + T); ctx.lineTo(x + i * 8 + 4, y + 10); ctx.lineTo(x + i * 8 + 8, y + T); ctx.fill(); }
-      } else if (t === LAVA) {
-        const top = g.tileAt(c, r - 1) !== LAVA;
-        ctx.fillStyle = '#dc2626'; ctx.fillRect(x, y, T, T);
-        if (top) {
-          ctx.fillStyle = '#f97316';
-          const wv = Math.sin(now * 3 + c) * 2;
-          ctx.fillRect(x, y + 2 + wv, T, 5);
-          ctx.fillStyle = '#fde047'; ctx.fillRect(x + ((c * 5) % 14), y + 3 + wv, 4, 2);
-        }
-      } else if (t === CONV_L || t === CONV_R) {
-        ctx.fillStyle = '#374151'; ctx.fillRect(x, y, T, T);
-        ctx.fillStyle = '#1f2937'; roundRect(ctx, x, y, T, 8, 2);
-        const off = ((now * 60 * (t === CONV_L ? -1 : 1)) % 8 + 8) % 8;
-        ctx.fillStyle = '#facc15';
-        for (let k = -8; k < T; k += 8) { const xx = x + k + off; if (xx >= x && xx + 3 <= x + T) ctx.fillRect(xx, y + 2, 3, 4); }
+  const now = performance.now() / 1000;
+  const CW = CHUNK * T;
+  const ch0 = Math.max(0, Math.floor(cam / CW)), ch1 = Math.floor((cam + W) / CW);
+  g._chunks ??= new Set();
+  for (let ch = ch0; ch <= ch1; ch++) {
+    const key = `runner-tiles-${g.stageSerial}-${ch}|`;
+    g._chunks.add(key);
+    g.drawCached(ctx, key, ch * CW, 0, CW, ROWS * T, (cx) => {
+      cx.translate(-ch * CW, 0);
+      for (let r = 0; r < ROWS; r++) for (let c = ch * CHUNK; c < Math.min(g.cols, (ch + 1) * CHUNK); c++) {
+        const t = g.tiles[r][c];
+        if (STATIC_TILES.has(t)) drawTile(g, cx, c, r, t, 0);
       }
+    });
+  }
+  // 화면에서 먼 구역 캐시는 버림 (메모리 절약)
+  for (const key of g._chunks) {
+    const idx = Number(key.slice(key.lastIndexOf('-') + 1, -1));
+    if (!key.startsWith(`runner-tiles-${g.stageSerial}-`) || idx < ch0 - 1 || idx > ch1 + 1) { g.clearCache(key); g._chunks.delete(key); }
+  }
+  const c0 = Math.max(0, Math.floor(cam / T) - 1), c1 = Math.min(g.cols - 1, Math.ceil((cam + W) / T) + 1);
+  for (let r = 0; r < ROWS; r++) for (let c = c0; c <= c1; c++) {
+    const t = g.tileAt(c, r);
+    if (t && !STATIC_TILES.has(t)) drawTile(g, ctx, c, r, t, now);
+  }
+}
+
+function drawTile(g, ctx, c, r, t, now) {
+  const B = g.B;
+  const x = c * T, y = r * T;
+  if (t === SOLID || t === ICE) {
+    const top = !isSolid(g.tileAt(c, r - 1));
+    if (B.bricks && !top) { // 성: 벽돌 무늬
+      ctx.fillStyle = B.ground; ctx.fillRect(x, y, T, T);
+      ctx.fillStyle = B.dirt; ctx.fillRect(x, y + 11, T, 2); ctx.fillRect(x + ((r % 2) ? 4 : 16), y, 2, 11); ctx.fillRect(x + ((r % 2) ? 16 : 4), y + 13, 2, 11);
+    } else {
+      ctx.fillStyle = ((c * 7 + r * 13) % 5 === 0) ? B.dirt : B.ground;
+      ctx.fillRect(x, y, T, T);
     }
+    if (t === ICE) { ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x + 3, y + 7, 9, 2); }
+    if (top) {
+      ctx.fillStyle = B.top; ctx.fillRect(x, y, T, 5);
+      if (!B.bricks && t !== ICE) { ctx.fillRect(x + 4, y + 5, 3, 2); ctx.fillRect(x + 15, y + 5, 3, 3); }
+    }
+  } else if (t === PLAT) {
+    ctx.fillStyle = B.plat;
+    roundRect(ctx, x, y, T, 8, 2);
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(x + T - 2, y, 2, 8);
+  } else if (t === CRUMBLE) {
+    const st = g.crumbles.get(`${c},${r}`);
+    const sx = st && st.st > 0 ? Math.sin(now * 70) * 1.2 : 0;
+    ctx.fillStyle = '#a8a29e';
+    roundRect(ctx, x + 1 + sx, y, T - 2, 9, 2);
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x + 6 + sx, y); ctx.lineTo(x + 10 + sx, y + 5); ctx.lineTo(x + 8 + sx, y + 9); ctx.moveTo(x + 17 + sx, y); ctx.lineTo(x + 14 + sx, y + 6); ctx.stroke();
+  } else if (t === SPIKE) {
+    ctx.fillStyle = '#cbd5e1';
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(x + i * 8, y + T); ctx.lineTo(x + i * 8 + 4, y + 10); ctx.lineTo(x + i * 8 + 8, y + T); ctx.fill(); }
+  } else if (t === LAVA) {
+    const top = g.tileAt(c, r - 1) !== LAVA;
+    ctx.fillStyle = '#dc2626'; ctx.fillRect(x, y, T, T);
+    if (top) {
+      ctx.fillStyle = '#f97316';
+      const wv = Math.sin(now * 3 + c) * 2;
+      ctx.fillRect(x, y + 2 + wv, T, 5);
+      ctx.fillStyle = '#fde047'; ctx.fillRect(x + ((c * 5) % 14), y + 3 + wv, 4, 2);
+    }
+  } else if (t === CONV_L || t === CONV_R) {
+    ctx.fillStyle = '#374151'; ctx.fillRect(x, y, T, T);
+    ctx.fillStyle = '#1f2937'; roundRect(ctx, x, y, T, 8, 2);
+    const off = ((now * 60 * (t === CONV_L ? -1 : 1)) % 8 + 8) % 8;
+    ctx.fillStyle = '#facc15';
+    for (let k = -8; k < T; k += 8) { const xx = x + k + off; if (xx >= x && xx + 3 <= x + T) ctx.fillRect(xx, y + 2, 3, 4); }
   }
 }
 

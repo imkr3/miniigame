@@ -163,14 +163,15 @@ export const getBest = (id) => storage.get(`miniigame:${id}:best`);
 export function getTop(id) {
   try { return JSON.parse(localStorage.getItem(`miniigame:${id}:top`)) || []; } catch { return []; }
 }
-function pushTop(id, score) {
+function pushTop(id, score, lower = false) {
   const entry = { s: score, d: Date.now() };
-  const top = [...getTop(id), entry].sort((a, b) => b.s - a.s).slice(0, 5);
+  const top = [...getTop(id), entry].sort((a, b) => (lower ? a.s - b.s : b.s - a.s)).slice(0, 5);
   try { localStorage.setItem(`miniigame:${id}:top`, JSON.stringify(top)); } catch { /* ignore */ }
   return { top, rank: top.indexOf(entry) };
 }
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
+const MAX_FX = 500; // 동시에 보이는 파티클 최대 개수
 const isCoarse = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
 
 // 한 페이지에 게임이 여러 개 있어도 마지막으로 클릭/시작한 게임만 키 입력을 받는다.
@@ -228,8 +229,7 @@ export class GameBase {
     this.state = 'ready'; // ready | playing | paused | over
     this.score = 0;
     this.time = 0;        // 플레이 시간(초)
-    this.bestKey = `miniigame:${this.meta.id}:best`;
-    this.best = storage.get(this.bestKey);
+    this.setRecord(this.meta.id);
     this.keys = new Set();
     this.pointer = { x: 0, y: 0, down: false, type: 'mouse', moved: false };
     this.fx = [];
@@ -265,8 +265,47 @@ export class GameBase {
   /** 게임이 제거될 때 (WebGL 자원 정리 등) */
   onDestroy() {}
 
+  /**
+   * 기록 종류 설정 (게임 모드별 기록 등)
+   * @param {string} id 기록 이름 (기본 = 게임 id)
+   * @param {{lower?: boolean, fmt?: (v:number)=>string}} [o] lower = 낮을수록 좋은 기록(시간 등), fmt = 표시 형식
+   */
+  setRecord(id, { lower = false, fmt = (v) => String(v) } = {}) {
+    this.recordId = id;
+    this.recordLower = lower;
+    this.recordFmt = fmt;
+    this.bestKey = `miniigame:${id}:best`;
+    this.best = storage.get(this.bestKey);
+    if (this.$best) this._renderHud();
+  }
+
+  // ---- 정적 그림 캐시: 매 프레임 다시 그릴 필요 없는 배경 등을 미리 그려 두고 이미지로 붙임 ----
+  /** key 별로 한 번만 그려 두고(화면 배율이 바뀌면 다시 그림) ctx 에 붙인다 */
+  drawCached(ctx, key, x, y, w, h, paint) {
+    const scale = this._renderScale || 1;
+    this._layers ??= new Map();
+    let L = this._layers.get(key);
+    if (!L || L.scale !== scale || L.w !== w || L.h !== h) {
+      const c = L?.canvas ?? document.createElement('canvas');
+      c.width = Math.max(1, Math.ceil(w * scale)); c.height = Math.max(1, Math.ceil(h * scale));
+      const cx = c.getContext('2d');
+      cx.setTransform(scale, 0, 0, scale, 0, 0);
+      cx.clearRect(0, 0, w, h);
+      paint(cx);
+      L = { canvas: c, scale, w, h };
+      this._layers.set(key, L);
+    }
+    ctx.drawImage(L.canvas, x, y, w, h);
+  }
+  /** 캐시 지우기 (prefix 로 시작하는 것 전부, 없으면 모두) */
+  clearCache(prefix = '') {
+    if (!this._layers) return;
+    for (const k of [...this._layers.keys()]) if (k.startsWith(prefix)) this._layers.delete(k);
+  }
+
   /** 파티클 폭발 */
   burst(x, y, { color = '#fff', count = 12, speed = 140, life = 0.6, size = 3, gravity = 0 } = {}) {
+    count = Math.min(count, MAX_FX - this.fx.length); // 너무 많으면 생략 (느린 기기 보호)
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2, s = speed * (0.3 + Math.random() * 0.7);
       this.fx.push({ kind: 'p', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life, max: life, size, color, gravity });
@@ -285,25 +324,28 @@ export class GameBase {
     this.keys.clear();
     this._overAt = performance.now();
     // 멀티플레이 결과는 혼자 하기 기록(최고 점수·TOP 5)에 넣지 않음
-    const isBest = !multi && this.score > this.best;
-    if (isBest) { this.best = this.score; storage.set(this.bestKey, this.best); }
-    const { top, rank } = this.score > 0 && !multi ? pushTop(this.meta.id, this.score) : { top: multi ? [] : getTop(this.meta.id), rank: -1 };
+    const value = this.recordValue ?? this.score, lower = this.recordLower, fmt = this.recordFmt;
+    const valid = value > 0;
+    const isBest = !multi && valid && (lower ? !this.best || value < this.best : value > this.best);
+    if (isBest) { this.best = value; storage.set(this.bestKey, this.best); }
+    const { top, rank } = valid && !multi ? pushTop(this.recordId, value, lower) : { top: multi ? [] : getTop(this.recordId), rank: -1 };
     this._renderHud();
     this.sound('over');
     this.vibrate(120);
     const medal = ['🥇', '🥈', '🥉', '4', '5'];
     const list = top.length ? `<ol class="mg-records">${top.map((r, i) => {
       const d = new Date(r.d);
-      return `<li class="${i === rank ? 'mg-me' : ''}"><span>${medal[i]}</span><span>${r.s}</span><span>${d.getMonth() + 1}/${d.getDate()}</span></li>`;
+      return `<li class="${i === rank ? 'mg-me' : ''}"><span>${medal[i]}</span><span>${esc(fmt(r.s))}</span><span>${d.getMonth() + 1}/${d.getDate()}</span></li>`;
     }).join('')}</ol>` : '';
-    const badge = isBest && this.score > 0 ? '<div class="mg-new">🏆 최고 기록!</div>'
+    const badge = isBest ? '<div class="mg-new">🏆 최고 기록!</div>'
       : rank >= 0 ? `<div class="mg-new">${rank + 1}위 기록!</div>` : '';
-    this._showOverlay(title, `<div class="mg-big">${this.score}</div>${badge}${stats ? `<p class="mg-stats">${esc(stats)}</p>` : ''}${list}`, multi ? 'multi-end' : 'restart');
+    this._showOverlay(title, `<div class="mg-big">${esc(valid || !lower ? fmt(value) : '-')}</div>${badge}${stats ? `<p class="mg-stats">${esc(stats)}</p>` : ''}${list}`, multi ? 'multi-end' : 'restart');
     this._emit('gameover', { score: this.score, best: this.best, newBest: isBest });
   }
 
   // ---- 외부(호스트 사이트)에서 쓰는 API ----
   start() {
+    this.recordValue = undefined;
     this.setScore(0);
     this.time = 0;
     this.fx = [];
@@ -411,7 +453,7 @@ export class GameBase {
     this._renderHud();
     this._renderButtons();
     this._showOverlay(this.meta.title,
-      `<p>${esc(this.meta.description)}</p>{{controls}}${this.best ? `<p class="mg-new">🏆 내 최고 ${this.best}</p>` : ''}`, 'start');
+      `<p>${esc(this.meta.description)}</p>{{controls}}${this.best ? `<p class="mg-new">🏆 내 최고 ${esc(this.recordFmt(this.best))}</p>` : ''}`, 'start');
 
     this._ro = new ResizeObserver(() => this._layout());
     this._ro.observe(this.$stage);
@@ -628,7 +670,7 @@ export class GameBase {
 
   _renderHud() {
     this.$score.textContent = this.score;
-    this.$best.textContent = Math.max(this.best, this.score);
+    this.$best.textContent = this.recordLower ? (this.best ? this.recordFmt(this.best) : '-') : this.recordFmt(Math.max(this.best, this.score));
   }
 
   _renderButtons() {
@@ -776,7 +818,10 @@ export class GameBase {
       f.x += f.vx * dt;
       f.y += f.vy * dt;
     }
-    this.fx = this.fx.filter((f) => f.life > 0);
+    // 새 배열을 만들지 않고 제자리에서 정리 (가비지 줄이기)
+    let k = 0;
+    for (let i = 0; i < this.fx.length; i++) if (this.fx[i].life > 0) this.fx[k++] = this.fx[i];
+    this.fx.length = k;
     if (this._shake.t > 0) this._shake.t -= dt;
   }
 
