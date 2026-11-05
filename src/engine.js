@@ -127,9 +127,11 @@ const CSS = `
 .mg-land .mg-stage{grid-area:stage;min-width:0}
 .mg-land .mg-pad{display:contents}
 .mg-land .mg-pad>:first-child{grid-area:pl;align-self:end;padding:10px 10px max(14px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
-.mg-land .mg-pad>:last-child{grid-area:pr;align-self:end;flex-direction:column-reverse;flex-wrap:nowrap;
+.mg-land .mg-pad>:last-child{grid-area:pr;align-self:end;flex-direction:row-reverse;flex-wrap:wrap-reverse;
+  justify-content:flex-start;align-content:flex-start;width:174px;
   padding:10px max(12px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) 10px}
-.mg-land .mg-btns button.mg-wide{min-width:96px;height:96px;border-radius:50%}
+.mg-land .mg-btns button{order:var(--rev)}
+.mg-land .mg-btns button.mg-wide{min-width:72px;width:72px;height:72px;border-radius:50%;padding:0}
 @media (max-height:560px){.mg-dpad{grid-template-columns:repeat(3,46px);grid-template-rows:repeat(3,46px)}
   .mg-btns button{height:52px;min-width:52px}.mg-lr button{height:52px;width:60px}.mg-pad{padding-top:6px}}
 `;
@@ -226,6 +228,7 @@ export class GameBase {
     this.keys = new Set();
     this.pointer = { x: 0, y: 0, down: false, type: 'mouse', moved: false };
     this.fx = [];
+    this.camera = { x: 0, y: 0 }; // 스크롤 게임용: 파티클·글자 효과가 월드 좌표를 따라가도록
     this._shake = { t: 0, amount: 0 };
     this.touchMode = controls === 'always' || (controls === 'auto' && isCoarse());
 
@@ -402,8 +405,9 @@ export class GameBase {
     let leftHtml = '<div></div>';
     if (left === 'dpad') leftHtml = `<div class="mg-dpad">${btn('up')}${btn('left')}${btn('right')}${btn('down')}</div>`;
     if (left === 'lr') leftHtml = `<div class="mg-lr">${btn('left')}${btn('right')}</div>`;
-    const right = buttons.map((b) =>
-      `<button type="button" data-action="${b.action}" class="${b.primary ? 'mg-primary' : ''} ${b.wide ? 'mg-wide' : ''}">${b.label}</button>`).join('');
+    // --rev: 가로 모드에서 마지막 버튼(주로 핵심 동작)이 오른쪽 아래 엄지 위치에 오도록 역순 배치
+    const right = buttons.map((b, i) =>
+      `<button type="button" data-action="${b.action}" style="--rev:${buttons.length - i}" class="${b.primary ? 'mg-primary' : ''} ${b.wide ? 'mg-wide' : ''}">${b.label}</button>`).join('');
     this.$pad.innerHTML = `${leftHtml}<div class="mg-btns">${right}</div>`;
 
     this.$pad.querySelectorAll('button').forEach((el) => {
@@ -771,6 +775,7 @@ export class GameBase {
       ctx.translate((Math.random() - 0.5) * k * 2, (Math.random() - 0.5) * k * 2);
     }
     this.draw(ctx);
+    ctx.translate(-this.camera.x, -this.camera.y);
     this._drawFx(ctx);
     ctx.restore();
     this._raf = requestAnimationFrame(this._frame);

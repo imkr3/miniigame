@@ -4,7 +4,7 @@ export const GAMES = [
   { id: 'maze',     title: '미로 추격', emoji: '🌀', color: '#0891b2', desc: '점을 모으고 박쥐를 피하기', load: () => import('./games/maze.js') },
   { id: 'snake',    title: '스네이크',  emoji: '🐍', color: '#16a34a', desc: '먹고, 길어지고, 피하기', load: () => import('./games/snake.js') },
   { id: 'breakout', title: '벽돌깨기',  emoji: '🧨', color: '#dc2626', desc: '공을 튕겨 벽돌 부수기', load: () => import('./games/breakout.js') },
-  { id: 'runner',   title: '점프 러너', emoji: '🏃', color: '#65a30d', desc: '끝없이 달리며 점프하기', load: () => import('./games/runner.js') },
+  { id: 'runner',   title: '점프 러너', emoji: '⚔️', color: '#65a30d', desc: '무기·증강으로 싸우는 플랫포머', load: () => import('./games/runner.js') },
 ];
 
 /**
