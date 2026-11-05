@@ -89,6 +89,8 @@
     const entry = GAMES.find((g) => g.id === id);
     if (!entry) return close();
     current?.destroy();
+    document.activeElement?.blur?.();
+    document.querySelector('main').inert = true; // 게임 중에는 뒤쪽 목록이 키보드 포커스를 받지 않게
     $player.hidden = false;
     document.body.classList.add('playing');
     current = await mountGame(id, $stage, { fit: true, onExit: goBack, onEvent: (e) => console.debug('[game]', e) });
@@ -97,6 +99,7 @@
   function close() {
     current?.destroy();
     current = null;
+    document.querySelector('main').inert = false;
     $player.hidden = true;
     document.body.classList.remove('playing');
     renderList();

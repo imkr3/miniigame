@@ -375,6 +375,8 @@ export class GameBase {
     this.$pauseBtn = $('.mg-pause');
     const $exit = $('.mg-exit');
     if (this.onExit) $exit.addEventListener('click', () => this.onExit()); else $exit.remove();
+    // 클릭한 버튼에 포커스가 남지 않도록 (키보드 입력이 버튼으로 가지 않게)
+    root.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && !this.$settings?.contains(b)) b.blur(); });
     this.$mute.addEventListener('click', () => { sfx.unlock(); this.toggleMute(); });
     $('.mg-gear').addEventListener('click', () => this.openSettings());
     this.$pauseBtn.addEventListener('click', () => {
@@ -668,6 +670,11 @@ export class GameBase {
     this._onKeyDown = (e) => {
       if (activeGame !== this) return;
       if (this.$settings) return this._settingsKey(e);
+      // 버튼에 포커스가 남아 있으면 Enter/Space가 그 버튼을 다시 눌러버림 (예: 목록 카드 → 게임 재시작) → 차단
+      if ((e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') && e.target.closest?.('button,a,[role=button]')) {
+        e.preventDefault();
+        e.target.blur();
+      }
       const a = this.keymap[e.code];
       const mod = (e.ctrlKey || e.metaKey || e.altKey) && !MODIFIER_CODES.includes(e.code);
       if (!a || mod) return;
