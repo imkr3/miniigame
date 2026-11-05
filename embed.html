@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>미니게임</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0b0c10; }
+    body { display: flex; align-items: center; justify-content: center; }
+    #stage { width: 100%; }
+  </style>
+</head>
+<body>
+<div id="stage"></div>
+<script type="module">
+  // iframe 삽입용: embed.html?game=snake
+  // 게임 이벤트(start/gameover 등)는 부모 창으로 postMessage 된다.
+  import { mountGame } from './src/registry.js';
+
+  const id = new URLSearchParams(location.search).get('game') || 'snake';
+  mountGame(id, document.getElementById('stage'), {
+    onEvent: (e) => window.parent !== window && window.parent.postMessage({ source: 'miniigame', ...e }, '*'),
+  }).then((game) => {
+    // iframe 크기에 맞춰 비율 유지하며 최대한 크게 (HUD 높이 약 40px 제외)
+    const fit = () => {
+      const hud = game.root.querySelector('.mg-hud').offsetHeight || 40;
+      const w = Math.min(innerWidth, (innerHeight - hud) * game.width / game.height);
+      game.root.style.maxWidth = `${Math.floor(w)}px`;
+    };
+    addEventListener('resize', fit);
+    fit();
+  }).catch((err) => { document.body.textContent = err.message; });
+</script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>미니게임</title>
+  <style>
+    body { margin: 0; background: #0b0c10; color: #e5e7eb; font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
+    main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 22px; margin: 0 0 16px; }
+    .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .card { background: #161922; border: 1px solid #262a36; border-radius: 12px; padding: 18px 12px; text-align: center; cursor: pointer; color: inherit; font: inherit; }
+    .card:hover { border-color: #3b82f6; }
+    .card .emoji { font-size: 34px; display: block; margin-bottom: 6px; }
+    #player[hidden], .list[hidden] { display: none; }
+    .back { background: none; border: 0; color: #93c5fd; cursor: pointer; font: inherit; padding: 0 0 12px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>미니게임</h1>
+  <div class="list" id="list"></div>
+  <div id="player" hidden>
+    <button class="back" id="back">← 목록으로</button>
+    <div id="stage"></div>
+  </div>
+</main>
+<script type="module">
+  import { GAMES, mountGame } from './src/registry.js';
+
+  const $list = document.getElementById('list');
+  const $player = document.getElementById('player');
+  const $stage = document.getElementById('stage');
+  let current = null;
+
+  for (const g of GAMES) {
+    const btn = document.createElement('button');
+    btn.className = 'card';
+    btn.innerHTML = `<span class="emoji">${g.emoji}</span>${g.title}`;
+    btn.onclick = () => open(g.id);
+    $list.appendChild(btn);
+  }
+
+  async function open(id) {
+    current?.destroy();
+    $list.hidden = true;
+    $player.hidden = false;
+    current = await mountGame(id, $stage, {
+      onEvent: (e) => console.log('[game event]', e),
+    });
+    history.replaceState(null, '', `#${id}`);
+  }
+
+  document.getElementById('back').onclick = () => {
+    current?.destroy();
+    current = null;
+    $player.hidden = true;
+    $list.hidden = false;
+    history.replaceState(null, '', location.pathname);
+  };
+
+  const fromHash = location.hash.slice(1);
+  if (GAMES.some((g) => g.id === fromHash)) open(fromHash);
+</script>
+</body>
+</html>
