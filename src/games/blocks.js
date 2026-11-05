@@ -64,7 +64,7 @@ export default class Blocks extends GameBase {
   static meta = {
     id: 'blocks',
     title: '블록 낙하',
-    description: '가로줄을 채워 없애세요. 회전으로 블록을 틈에 끼워 넣는 "스핀"과 연속 쿼드는 점수가 크게 올라요.',
+    description: '가로줄을 채워 없애세요. 회전으로 틈에 끼워 넣는 "스핀"과 연속 쿼드는 점수가 크게 올라요. ⚙ 설정에서 시작 레벨을 고를 수 있어요.',
     controls: '←→ 이동 · ↓ 소프트드롭 · Space 하드드롭 · ↑/X 회전 · Z 반대 회전 · A 180° · C/Shift 보관 (⚙에서 변경)',
     touchControls: '탭 회전 · 좌우로 끌기 이동 · 아래로 끌기 빠르게 · 위로 밀기 보관',
   };
@@ -83,6 +83,9 @@ export default class Blocks extends GameBase {
     up: '시계 방향 회전', rotl: '반시계 회전', rot180: '180° 회전', hold: '보관',
   };
   static settings = [
+    { id: 'startLevel', label: '시작 레벨', type: 'range', min: 1, max: 20, default: 1, unit: '',
+      tip: '높을수록 처음부터 빠르게 떨어짐 (점수도 레벨만큼 곱해짐). 새 게임부터 적용' },
+    { id: 'linesPerLevel', label: '레벨업 줄 수', type: 'range', min: 4, max: 15, default: 8, unit: '줄', tip: '이만큼 줄을 지울 때마다 레벨 +1' },
     { id: 'das', label: 'DAS (연속 이동 시작)', type: 'range', min: 0, max: 300, step: 5, default: 160, unit: 'ms',
       tip: '좌우 키를 누르고 있을 때 연속 이동이 시작되기까지의 시간' },
     { id: 'arr', label: 'ARR (연속 이동 간격)', type: 'range', min: 0, max: 100, step: 5, default: 40, unit: 'ms',
@@ -116,7 +119,7 @@ export default class Blocks extends GameBase {
     this.holdType = -1;
     this.canHold = true;
     this.lines = 0;
-    this.level = 1;
+    this.level = this.cfg.startLevel;
     this.gravityT = 0;
     this.shift = null;     // 좌우 연속 이동 상태
     this.softT = 0;
@@ -291,7 +294,7 @@ export default class Blocks extends GameBase {
     this.clearing = { rows: full, t: 0.18 };
     this.piece = null;
     this.lines += n;
-    const newLevel = 1 + Math.floor(this.lines / 10);
+    const newLevel = this.cfg.startLevel + Math.floor(this.lines / this.cfg.linesPerLevel);
     if (newLevel > this.level) {
       this.level = newLevel;
       this.sound('levelup');
@@ -315,7 +318,11 @@ export default class Blocks extends GameBase {
 
   updateInfo() { this.setInfo(`레벨 ${this.level} · ${this.lines}줄`); }
 
-  get gravity() { return Math.max(0.03, 0.8 * Math.pow(0.85, this.level - 1)); }
+  /** 한 칸 떨어지는 데 걸리는 시간(초). 레벨이 오를수록 가파르게 빨라지고 15레벨 무렵엔 거의 즉시 낙하 */
+  get gravity() {
+    const L = Math.min(this.level, 20);
+    return Math.max(0.0008, Math.pow(0.8 - (L - 1) * 0.007, L - 1) * 0.75);
+  }
 
   onAction(action, repeat) {
     if (repeat || !this.piece) return; // 키 반복은 OS 대신 update의 DAS/ARR로 처리
@@ -390,7 +397,7 @@ export default class Blocks extends GameBase {
       this.gravityT += dt;
       while (this.gravityT >= this.gravity) {
         this.gravityT -= this.gravity;
-        if (!this.tryMove(0, 1)) break;
+        if (!this.tryMove(0, 1)) { this.gravityT = 0; break; }
       }
     }
   }
