@@ -40,6 +40,7 @@ const DIR_LIST = Object.values(DIRS);
 const CHASER_COLORS = ['#f43f5e', '#a855f7', '#f59e0b'];
 const FRIGHT_TIME = 6;
 
+const SPEEDS = { slow: 0.8, normal: 1, fast: 1.2 };
 const isZero = (d) => d.x === 0 && d.y === 0;
 const STOP = { x: 0, y: 0 };
 
@@ -47,10 +48,15 @@ export default class Maze extends GameBase {
   static meta = {
     id: 'maze',
     title: '미로 추격',
-    description: '점을 모두 모으세요. 큰 점을 먹으면 잠시 추격자를 잡을 수 있어요.',
+    description: '슬라임을 움직여 점을 모두 모으세요. 큰 점을 먹으면 잠시 박쥐를 잡을 수 있어요.',
     controls: '방향키 / WASD (미리 눌러두면 갈림길에서 꺾어요)',
     touchControls: '화면을 밀어서 방향 전환 (또는 아래 방향 버튼)',
   };
+
+  static settings = [
+    { id: 'speed', label: '게임 속도', type: 'select', default: 'normal',
+      options: [['slow', '느림'], ['normal', '보통'], ['fast', '빠름']], tip: '다음 판(또는 목숨을 잃은 뒤)부터 적용' },
+  ];
 
   constructor(container, opts = {}) {
     super(container, { width: COLS * CELL, height: ROWS * CELL, ...opts });
@@ -81,10 +87,11 @@ export default class Maze extends GameBase {
       return out;
     };
     const [p] = find('P');
-    const speedUp = 1 + (this.round - 1) * 0.08;
-    this.player = { ...p, dir: STOP, want: STOP, t: 0, speed: 6 };
+    const speedUp = Math.min(1.3, 1 + (this.round - 1) * 0.05);
+    const k = SPEEDS[this.cfg.speed] ?? 1;
+    this.player = { ...p, dir: STOP, want: STOP, t: 0, speed: 4.3 * k };
     this.chasers = find('C').map((c, i) => ({
-      ...c, home: c, dir: STOP, t: 0, speed: 4.6 * speedUp,
+      ...c, home: c, dir: STOP, t: 0, speed: 3.5 * speedUp * k,
       color: CHASER_COLORS[i % CHASER_COLORS.length],
       wait: 1 + i * 2.5,           // 순차적으로 출발
       randomness: 0.15 + i * 0.15, // 추격자마다 성격(무작위성) 다르게
@@ -265,33 +272,21 @@ export default class Maze extends GameBase {
       ctx.closePath(); ctx.fill();
     }
 
-    // 플레이어: 민트색 원 + 진행 방향 눈
-    const pp = this.pos(this.player);
-    const px = (pp.x + 0.5) * CELL, py = (pp.y + 0.5) * CELL;
-    const pr = CELL * 0.4 * (this.dying > 0 ? Math.max(0, this.dying - 0.3) / 0.8 : 1);
-    ctx.fillStyle = '#2dd4bf';
-    ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
-    const look = isZero(this.player.dir) ? DIRS.right : this.player.dir;
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath(); ctx.arc(px + look.x * 5, py + look.y * 5, 3, 0, Math.PI * 2); ctx.fill();
+    const now = performance.now() / 1000;
 
-    // 추격자: 마름모
+    // 플레이어: 말랑한 젤리 슬라임 (움직이면 통통 튐)
+    const pl = this.player;
+    const pp = this.pos(pl);
+    const moving = !isZero(pl.dir) && this.state === 'playing' && this.freeze <= 0;
+    const life = this.dying > 0 ? Math.max(0, this.dying - 0.3) / 0.8 : 1;
+    this.drawSlime(ctx, (pp.x + 0.5) * CELL, (pp.y + 0.5) * CELL, isZero(pl.dir) ? DIRS.down : pl.dir, moving ? now * 12 : now * 3, life);
+
+    // 추격자: 박쥐
     const blink = this.fright > 0 && this.fright < 1.5 && Math.floor(this.fright * 6) % 2 === 0;
-    for (const c of this.chasers) {
+    this.chasers.forEach((c, i) => {
       const cp = this.pos(c);
-      const cx = (cp.x + 0.5) * CELL, cy = (cp.y + 0.5) * CELL, r = CELL * 0.42;
-      ctx.fillStyle = this.fright > 0 ? (blink ? '#e2e8f0' : '#3b82f6') : c.color;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
-      ctx.closePath(); ctx.fill();
-      // 눈
-      const look2 = isZero(c.dir) ? DIRS.down : c.dir;
-      ctx.fillStyle = this.fright > 0 ? '#1e293b' : '#fff';
-      ctx.beginPath();
-      ctx.arc(cx - 4 + look2.x * 2, cy - 2 + look2.y * 2, 2.5, 0, Math.PI * 2);
-      ctx.arc(cx + 4 + look2.x * 2, cy - 2 + look2.y * 2, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
+      this.drawBat(ctx, (cp.x + 0.5) * CELL, (cp.y + 0.5) * CELL, c, now + i * 0.7, blink);
+    });
 
     if (this.state === 'playing' && this.freeze > 0) {
       ctx.fillStyle = '#fde68a';
@@ -300,5 +295,105 @@ export default class Maze extends GameBase {
       ctx.fillText('준비!', this.width / 2, (9 + 0.5) * CELL + 8);
       ctx.textAlign = 'start';
     }
+  }
+
+  drawSlime(ctx, x, y, look, phase, scale) {
+    if (scale <= 0) return;
+    const R = CELL * 0.42 * scale;
+    const squash = Math.sin(phase) * 0.08;      // 위아래로 말랑
+    const w = R * (1 + squash), h = R * (1 - squash);
+    const bottom = y + R * 0.75;
+    ctx.save();
+    // 그림자
+    ctx.fillStyle = 'rgba(0,0,0,.25)';
+    ctx.beginPath(); ctx.ellipse(x, bottom + 1, w * 0.85, R * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+    // 몸통: 둥근 윗부분 + 납작한 아랫부분
+    const g = ctx.createLinearGradient(0, bottom - h * 1.6, 0, bottom);
+    g.addColorStop(0, '#6ee7b7'); g.addColorStop(1, '#10b981');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x - w, bottom);
+    ctx.bezierCurveTo(x - w * 1.05, bottom - h * 1.9, x + w * 1.05, bottom - h * 1.9, x + w, bottom);
+    ctx.quadraticCurveTo(x, bottom + R * 0.12, x - w, bottom);
+    ctx.fill();
+    // 광택
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    ctx.beginPath(); ctx.ellipse(x - w * 0.45, bottom - h * 1.2, R * 0.16, R * 0.1, -0.6, 0, Math.PI * 2); ctx.fill();
+    // 눈: 진행 방향을 바라봄
+    const ey = bottom - h * 0.85 + look.y * R * 0.12, ex = look.x * R * 0.22;
+    for (const side of [-1, 1]) {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.ellipse(x + side * R * 0.3 + ex, ey, R * 0.17, R * 0.21, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath(); ctx.arc(x + side * R * 0.3 + ex + look.x * R * 0.07, ey + look.y * R * 0.08, R * 0.09, 0, Math.PI * 2); ctx.fill();
+    }
+    // 볼터치
+    ctx.fillStyle = 'rgba(251,113,133,.45)';
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.ellipse(x + side * R * 0.55 + ex, ey + R * 0.25, R * 0.1, R * 0.06, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawBat(ctx, x, y, c, t, blink) {
+    const scared = this.fright > 0;
+    const R = CELL * 0.26;
+    const body = scared ? (blink ? '#e2e8f0' : '#3b82f6') : c.color;
+    const bob = Math.sin(t * 5) * 1.5;      // 둥실둥실
+    const flap = scared ? 0.25 + Math.sin(t * 9) * 0.1 : Math.sin(t * 16) * 0.55; // 겁먹으면 날개 처짐
+    y += bob;
+    ctx.save();
+    ctx.fillStyle = body;
+    // 날개 (좌우 대칭, 끝이 뾰족한 박쥐 날개)
+    for (const side of [-1, 1]) {
+      ctx.save();
+      ctx.translate(x + side * R * 0.7, y - R * 0.1);
+      ctx.rotate(side * flap);
+      ctx.beginPath();
+      ctx.moveTo(0, -R * 0.35);
+      ctx.lineTo(side * R * 1.5, -R * 0.75);
+      ctx.lineTo(side * R * 1.25, R * 0.05);
+      ctx.lineTo(side * R * 0.95, -R * 0.1);
+      ctx.lineTo(side * R * 0.7, R * 0.4);
+      ctx.lineTo(side * R * 0.4, R * 0.1);
+      ctx.lineTo(0, R * 0.45);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    // 귀
+    ctx.beginPath();
+    ctx.moveTo(x - R * 0.75, y - R * 0.5); ctx.lineTo(x - R * 0.55, y - R * 1.35); ctx.lineTo(x - R * 0.15, y - R * 0.8);
+    ctx.moveTo(x + R * 0.75, y - R * 0.5); ctx.lineTo(x + R * 0.55, y - R * 1.35); ctx.lineTo(x + R * 0.15, y - R * 0.8);
+    ctx.fill();
+    // 몸통
+    ctx.beginPath(); ctx.ellipse(x, y, R, R * 0.95, 0, 0, Math.PI * 2); ctx.fill();
+
+    const look = isZero(c.dir) ? DIRS.down : c.dir;
+    const lx = look.x * R * 0.15, ly = look.y * R * 0.12;
+    if (scared) {
+      // 겁먹은 얼굴: 작은 눈 + 물결 입
+      ctx.fillStyle = blink ? '#1e293b' : '#e0f2fe';
+      for (const side of [-1, 1]) { ctx.beginPath(); ctx.arc(x + side * R * 0.35, y - R * 0.15, R * 0.14, 0, Math.PI * 2); ctx.fill(); }
+      ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i <= 4; i++) ctx.lineTo(x - R * 0.45 + i * R * 0.225, y + R * 0.38 + (i % 2 ? -R * 0.12 : 0));
+      ctx.stroke();
+    } else {
+      // 화난 얼굴: 노란 눈 + 찌푸린 눈썹 + 송곳니
+      for (const side of [-1, 1]) {
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath(); ctx.ellipse(x + side * R * 0.38 + lx, y - R * 0.1 + ly, R * 0.24, R * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#111827';
+        ctx.beginPath(); ctx.arc(x + side * R * 0.38 + lx * 1.6, y - R * 0.08 + ly * 1.6, R * 0.1, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#111827'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(x + side * R * 0.65, y - R * 0.48); ctx.lineTo(x + side * R * 0.12, y - R * 0.3); ctx.stroke();
+      }
+      ctx.fillStyle = '#fff';
+      for (const side of [-1, 1]) {
+        ctx.beginPath(); ctx.moveTo(x + side * R * 0.12, y + R * 0.38); ctx.lineTo(x + side * R * 0.28, y + R * 0.38); ctx.lineTo(x + side * R * 0.2, y + R * 0.62); ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 }
