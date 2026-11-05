@@ -26,7 +26,7 @@ export default class Kart extends GameBase {
   static meta = {
     id: 'kart',
     title: '카트 레이스',
-    description: '캐릭터와 카트를 골라 8명이 겨루는 3D 레이스! 드리프트 후 미니 터보, 점프대 트릭, 글라이더 활공, 아이템으로 역전을 노리세요.',
+    description: '캐릭터와 카트를 골라 8명이 겨루는 3D 레이스! 드리프트 미니 터보, 점프대 트릭, 글라이더, 지름길, 아이템으로 역전을 노리세요.',
     controls: '↑ 가속 · ↓ 브레이크 · ←→ 조향 · Space/Shift 드리프트(누른 채 꺾기, 떼면 미니 터보) · 점프대에서 Space = 트릭 · X/E 아이템',
     touchControls: '자동 가속 · ◀▶ 조향 · 드리프트 버튼(누른 채 꺾기) · 아이템 · 브레이크 · 📱 가로 화면 추천',
   };
@@ -174,7 +174,7 @@ export default class Kart extends GameBase {
         lap: 1, lapStart: 0, lapTimes: [], rank: slot + 1, padCd: 0, startCharge: null,
         lane: (Math.random() - 0.5) * 1.2, laneT: 0, aiItemT: 2 + Math.random() * 3, aiDriftT: 0, skill: diff.skill * (0.97 + Math.random() * 0.06),
         stall: 0, wrongT: 0, hopReq: false, grounded: true, gliding: false, airT: 0, canTrick: false, trick: false, trickA: 0,
-        steerS: 0, camH: Math.atan2(p.tx, p.tz), safeD: tr.length - back, respawnT: 0, pitch: 0,
+        steerS: 0, surface: 1, zone: 'main', offT: 0, scIdx: [], scPlan: -1, camH: Math.atan2(p.tx, p.tz), safeD: tr.length - back, respawnT: 0, pitch: 0,
       };
     });
     this.player = this.racers.find((r) => r.isPlayer);
@@ -326,7 +326,7 @@ export default class Kart extends GameBase {
 
     const boosting = r.boostT > 0;
     let maxS = st.maxSpeed * (r.rubber ?? 1);
-    if (r.offroad && !boosting && r.grounded) maxS *= st.offroad;
+    if (r.surface < 1 && !boosting && r.grounded) maxS *= r.surface; // 갓길·흙길·풀밭은 느림
     if (boosting) maxS *= 1.3;
     if (r.gliding) {
       r.speed += (Math.max(24, Math.min(r.speed, maxS)) - r.speed) * dt * 0.5; // 활공 중엔 속도 유지
@@ -360,44 +360,67 @@ export default class Kart extends GameBase {
       else if (r.grounded) r.driftT += dt * (1 + 0.6 * Math.max(0, steer * r.driftDir));
     }
 
-    // 조향 (오른쪽 = 각도 감소). 빠를수록 덜 꺾이고, 드리프트는 바깥/안쪽 조절 폭이 넓음
+    // 조향 (오른쪽 = 각도 감소). 빠를수록 덜 꺾임
+    // 드리프트: 기본은 완만한 호, 안쪽 키 = 더 꺾임, 반대쪽 키 = 회전이 멈추고 그쪽으로 미끄러지듯 끌려감
     const spF = clamp(Math.abs(r.speed) / 9, 0, 1) * (1 - 0.3 * clamp(Math.abs(r.speed) / st.maxSpeed, 0, 1));
+    const inward = r.drifting ? steer * r.driftDir : 0; // +1 안쪽, -1 바깥쪽
     let turn;
-    if (r.gliding) turn = steer * st.turn * 0.8;
-    else if (r.drifting) turn = r.driftDir * (0.5 + 0.35 * steer * r.driftDir) * st.turn * 1.25;
+    if (r.gliding) turn = steer * st.turn * 0.85;
+    else if (r.drifting) turn = r.driftDir * (0.34 + 0.4 * inward) * st.turn * 1.2;
     else turn = steer * st.turn * spF * (r.speed >= 0 ? 1 : -1) * (boosting ? 0.9 : 1);
     if (!r.grounded && !r.drifting && !r.gliding) turn *= 0.5;
     r.h -= turn * dt;
-    r.slip += ((r.drifting ? r.driftDir * 0.24 : 0) - r.slip) * Math.min(1, dt * 5);
+    // 미끄러짐 각: 바깥쪽 키를 누를수록 더 바깥으로 흐름
+    const slipT = r.drifting ? r.driftDir * (0.2 + 0.2 * Math.max(0, -inward)) : 0;
+    r.slip += (slipT - r.slip) * Math.min(1, dt * 4);
     const mv = r.h + r.slip;
     r.x += Math.sin(mv) * r.speed * dt;
     r.z += Math.cos(mv) * r.speed * dt;
 
-    // 트랙 위치
+    // ---- 지금 어디에 있는지: 본선 / 지름길 / 코스 밖 ----
     const prevD = r.lastD;
     const n = tr.nearest(r.x, r.z, r.idx);
     r.idx = n.i;
     const inGap = tr.inGap(n.d);
-    const onTrack = Math.abs(n.lat) <= tr.wall + 0.3 && !inGap;
-    const groundY = onTrack ? n.y : (tr.def.floating || inGap ? -Infinity : 0);
-    r.offroad = Math.abs(n.lat) > tr.hw + tr.curb * 0.6;
+    const inMain = Math.abs(n.lat) <= tr.wall + 0.3 && !inGap;
+    let zone = inMain ? 'main' : 'off', sc = null, scn = null;
+    if (!inMain) {
+      r.scIdx = r.scIdx ?? [];
+      for (let k = 0; k < tr.shortcuts.length; k++) {
+        const q = tr.nearestShortcut(k, r.x, r.z, r.scIdx[k]);
+        r.scIdx[k] = q.i;
+        if (Math.abs(q.lat) <= tr.shortcuts[k].half + 1.2 && Math.abs(r.y - q.y) < 6) { zone = k; sc = tr.shortcuts[k]; scn = q; break; }
+      }
+    }
+    if (zone === 'off' && inGap) zone = 'gap';
+    const groundY = zone === 'main' ? n.y : sc ? scn.y : (tr.def.floating || zone === 'gap' ? -Infinity : 0);
+    const groundS = zone === 'main' ? n.s : sc ? scn.s : n.s;
+    r.surface = zone === 'main' ? (Math.abs(n.lat) > tr.hw + tr.curb * 0.6 ? st.offroad : 1) : sc ? sc.surface : 0.45;
+    r.offroad = r.surface < 1;
+
+    // 낭떠러지(글라이더 구간)에 들어서면 발사대를 못 밟았어도 자동으로 글라이더 펼침
+    if (zone === 'gap' && !r.gliding && r.y > n.y - 4) {
+      r.gliding = true; r.grounded = false; r.vy = Math.max(r.vy, 2.5); r.speed = Math.max(r.speed, 26);
+      if (r.drifting) this.endDrift(r);
+      if (r.isPlayer) { this.msg = { text: '🪂 글라이더!', t: 1 }; this.sound('power'); }
+    }
 
     // 높이: 땅에 붙어 경사를 따라가거나, 공중이면 중력 (글라이더는 천천히)
     if (r.grounded && groundY > -Infinity && r.y - groundY < 0.7) {
       r.y = groundY; r.vy = 0;
-      const fwd = Math.sin(r.h) * n.s.tx + Math.cos(r.h) * n.s.tz;
-      r.speed -= n.s.slope * fwd * 4 * dt; // 오르막 감속 · 내리막 가속
-      r.pitch = -Math.atan(n.s.slope * fwd);
+      const fwd = Math.sin(r.h) * groundS.tx + Math.cos(r.h) * groundS.tz;
+      r.speed -= groundS.slope * fwd * 4 * dt; // 오르막 감속 · 내리막 가속
+      r.pitch = -Math.atan(groundS.slope * fwd);
     } else {
       r.grounded = false;
       r.airT += dt;
-      const g = r.gliding ? (r.vy > 0 ? 9 : 5) : GRAV;
+      const g = r.gliding ? (r.vy > 0 ? 9 : 4.5) : GRAV;
       r.vy -= g * dt;
       if (r.gliding) {
-        r.vy = Math.max(r.vy, -4.5);
-        // 활공 보정: 코스 가운데 쪽으로 살짝 당기고, 진행 방향도 코스를 향해 조금씩
-        if (Math.abs(n.lat) > tr.hw * 0.5) { const k = Math.sign(n.lat) * 3 * dt; r.x -= n.s.nx * k; r.z -= n.s.nz * k; }
-        r.h += wrapAngle(Math.atan2(n.s.tx, n.s.tz) - r.h) * Math.min(1, dt * 0.8);
+        r.vy = Math.max(r.vy, -3.6);
+        // 활공 보정: 코스 가운데 쪽으로 당기고, 진행 방향도 코스를 향해 서서히
+        if (Math.abs(n.lat) > tr.hw * 0.35) { const k = Math.sign(n.lat) * Math.min(Math.abs(n.lat), 6 * dt); r.x -= n.s.nx * k; r.z -= n.s.nz * k; }
+        r.h += wrapAngle(Math.atan2(n.s.tx, n.s.tz) - r.h) * Math.min(1, dt * 1.5);
       }
       const prevY = r.y;
       r.y += r.vy * dt;
@@ -410,30 +433,39 @@ export default class Kart extends GameBase {
       }
     }
 
-    // 벽 (공중으로 넘어가는 중이 아니면)
-    const lim = tr.wall - 1.0;
-    if (Math.abs(n.lat) > lim && !inGap && r.y < n.y + 1.0) {
-      const sgn = Math.sign(n.lat), push = Math.abs(n.lat) - lim;
-      r.x -= n.s.nx * sgn * push; r.z -= n.s.nz * sgn * push;
-      if (r.speed > 6) {
-        r.speed *= 0.7;
-        if (r.isPlayer) { this.sound('lock'); this.shake(2, 0.12); }
+    // 본선 벽 (뚫린 곳 제외). 안에서 밖으로 / 밖(지름길)에서 안으로 둘 다 막음
+    const side = Math.sign(n.lat) || 1;
+    const open = tr.isOpen(n.d, side);
+    if (!open && !inGap && r.y < n.y + 1.0) {
+      const lim = tr.wall - 1.0;
+      const wasInside = r.zone === 'main' || r.zone === undefined;
+      if (wasInside && Math.abs(n.lat) > lim && Math.abs(n.lat) < tr.wall + 3) {
+        const push = Math.abs(n.lat) - lim;
+        r.x -= n.s.nx * side * push; r.z -= n.s.nz * side * push;
+        this.wallBump(r, n);
+        zone = 'main';
+      } else if (!wasInside && Math.abs(n.lat) < tr.wall + 1.0 && Math.abs(n.lat) > tr.wall - 3) {
+        const push = tr.wall + 1.0 - Math.abs(n.lat);
+        r.x += n.s.nx * side * push; r.z += n.s.nz * side * push;
+        this.wallBump(r, n);
       }
-      // 벽을 따라 미끄러지도록 방향을 트랙 쪽으로 살짝
-      const ta = Math.atan2(n.s.tx, n.s.tz);
-      const fwdA = Math.cos(wrapAngle(r.h - ta)) >= 0 ? ta : ta + Math.PI;
-      r.h += wrapAngle(fwdA - r.h) * 0.2;
     }
+    r.zone = zone;
 
-    // 추락 → 코스로 복귀
-    if (r.y < n.y - 10 || (r.grounded && !onTrack)) { this.respawn(r); this.syncModel(r, 0, dt); return; }
-    if (r.grounded && onTrack && Math.abs(n.lat) < tr.hw) r.safeD = n.d;
+    // 코스 밖 (풀밭)에서 오래 머물거나 떨어지면 → 코스로 복귀
+    r.offT = zone === 'off' && r.grounded ? (r.offT ?? 0) + dt : 0;
+    if (r.y < Math.min(n.y, groundY > -Infinity ? groundY : n.y) - 10 || r.offT > 2) { this.respawn(r); this.syncModel(r, 0, dt); return; }
+    if (r.grounded && zone === 'main' && Math.abs(n.lat) < tr.hw) r.safeD = n.d;
 
-    // 점프대 / 글라이더 발사대
-    let dd = n.d - prevD;
+    // 진행 거리: 지름길 위에서는 지름길 진행률을 본선 거리로 환산
+    const curD = sc ? scn.mainD : n.d;
+    if (sc) r.idx = tr.nearest(this.track.at(curD).x, this.track.at(curD).z, r.idx).i;
+    let dd = curD - prevD;
     if (dd < -tr.length / 2) dd += tr.length;
     if (dd > tr.length / 2) dd -= tr.length;
-    if (r.grounded && dd > 0 && Math.abs(n.lat) < tr.hw + 1) {
+
+    // 점프대 / 글라이더 발사대 (살짝 떠 있어도 인정)
+    if (zone === 'main' && dd > 0 && Math.abs(n.lat) < tr.hw + 1.5 && r.y - n.y < 1.2) {
       for (const ramp of tr.ramps) {
         if (!tr.inRange(ramp.d, prevD, n.d)) continue;
         r.grounded = false; r.airT = 0; r.canTrick = true; r.trick = false; r.trickA = 0;
@@ -451,7 +483,7 @@ export default class Kart extends GameBase {
 
     // 진행 거리 (랩 계산)
     r.progress += dd;
-    r.lastD = n.d;
+    r.lastD = curD;
     const lap = Math.floor(r.progress / tr.length) + 1;
     if (lap > r.lap && !r.finished) {
       r.lapTimes.push(this.raceT - r.lapStart);
@@ -520,12 +552,23 @@ export default class Kart extends GameBase {
     r.airT = 0;
   }
 
+  wallBump(r, n) {
+    if (r.speed > 6) {
+      r.speed *= 0.7;
+      if (r.isPlayer) { this.sound('lock'); this.shake(2, 0.12); }
+    }
+    // 벽을 따라 미끄러지도록 방향을 트랙 쪽으로 살짝
+    const ta = Math.atan2(n.s.tx, n.s.tz);
+    const fwdA = Math.cos(wrapAngle(r.h - ta)) >= 0 ? ta : ta + Math.PI;
+    r.h += wrapAngle(fwdA - r.h) * 0.2;
+  }
+
   respawn(r) {
     const tr = this.track;
     const p = tr.at(r.safeD - 4);
     Object.assign(r, {
       x: p.x, z: p.z, y: p.y + 2.5, vy: 0, h: Math.atan2(p.tx, p.tz), speed: 0, grounded: false, gliding: false,
-      drifting: false, spinT: 0, trick: false, canTrick: false, idx: p.i, respawnT: 1.6, camH: Math.atan2(p.tx, p.tz),
+      drifting: false, spinT: 0, trick: false, canTrick: false, idx: p.i, respawnT: 1.6, camH: Math.atan2(p.tx, p.tz), zone: 'main', offT: 0, scIdx: [],
     });
     if (r.isPlayer) { this.msg = { text: '코스로 복귀!', t: 1.2 }; this.sound('hit'); }
   }
@@ -556,7 +599,7 @@ export default class Kart extends GameBase {
     m.root.rotation.x = r.pitch;
     m.root.visible = r.respawnT <= 0 || Math.floor(r.respawnT * 10) % 2 === 0;
     // 드리프트 땐 차체를 바깥쪽으로 틀고 기울임, 스핀은 빙글빙글, 트릭은 공중제비
-    const yaw = r.spinT > 0 ? r.spinA : r.slip * 1.3;
+    const yaw = r.spinT > 0 ? r.spinA : r.slip * 1.1;
     m.body.rotation.y += (yaw - m.body.rotation.y) * (r.spinT > 0 ? 1 : 0.3);
     m.body.rotation.z = r.trick ? r.trickA : -r.slip * 0.45 - (r.gliding ? r.steerS * 0.3 : 0);
     m.glider.visible = r.gliding;
@@ -595,8 +638,29 @@ export default class Kart extends GameBase {
       const ahead = dx * Math.sin(r.h) + dz * Math.cos(r.h);
       if (ahead > 0 && ahead < 22 && Math.abs(dx * Math.cos(r.h) - dz * Math.sin(r.h)) < 3 && Math.random() < r.skill) { r.lane = -Math.sign(r.lane || 1) * 0.9; r.laneT = 1.5; }
     }
-    const t = tr.at(r.lastD + look);
-    const tx = t.x + t.nx * tr.hw * 0.55 * r.lane, tz = t.z + t.nz * tr.hw * 0.55 * r.lane;
+    // 지름길: 입구에 다가가면 탈지 말지 결정 (실력·부스트 여부)
+    for (let k = 0; k < tr.shortcuts.length; k++) {
+      const sc = tr.shortcuts[k];
+      let dist = sc.dFrom - r.lastD; if (dist < 0) dist += tr.length;
+      if (dist > 15 && dist < 70 && r.scDecide !== `${r.lap}-${k}`) {
+        r.scDecide = `${r.lap}-${k}`;
+        r.scPlan = Math.random() < 0.2 + r.skill * 0.25 + (r.boostT > 0 || r.item === 'nitro' || r.item === 'triple' ? 0.25 : 0) ? k : -1;
+      }
+    }
+    let tx, tz;
+    if (typeof r.zone === 'number') { // 지름길 위: 지름길을 따라감
+      const S = tr.shortcuts[r.zone].samples, q = S[Math.min(S.length - 1, (r.scIdx[r.zone] ?? 0) + Math.round(look / 2))];
+      tx = q.x; tz = q.z;
+    } else if (r.scPlan >= 0) {
+      const sc = tr.shortcuts[r.scPlan];
+      let dist = sc.dFrom - r.lastD; if (dist > tr.length / 2) dist -= tr.length;
+      if (dist < -35) r.scPlan = -1; // 이미 지나침
+      else if (dist < 28) { const q = sc.samples[Math.min(sc.samples.length - 1, 9 + Math.max(0, Math.round(-dist / 2)))]; tx = q.x; tz = q.z; }
+    }
+    if (tx === undefined) {
+      const t = tr.at(r.lastD + look);
+      tx = t.x + t.nx * tr.hw * 0.55 * r.lane; tz = t.z + t.nz * tr.hw * 0.55 * r.lane;
+    }
     const want = Math.atan2(tx - r.x, tz - r.z);
     const diff = wrapAngle(want - r.h);
     let steer = clamp(-diff * 2.4, -1, 1);
@@ -945,6 +1009,14 @@ export default class Kart extends GameBase {
     ctx.beginPath();
     tr.samples.forEach((s, i) => { const x = cx + (s.x - m.ox) * m.s, y = cy + (s.z - m.oz) * m.s; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
     ctx.closePath(); ctx.stroke();
+    // 지름길 (점선)
+    ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(253,224,71,.85)'; ctx.lineWidth = 2;
+    for (const sc of tr.shortcuts) {
+      ctx.beginPath();
+      sc.samples.forEach((s, i) => { const x = cx + (s.x - m.ox) * m.s, y = cy + (s.z - m.oz) * m.s; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
     for (const r of [...this.racers].reverse()) {
       const x = cx + (r.x - m.ox) * m.s, y = cy + (r.z - m.oz) * m.s;
       ctx.fillStyle = hex(r.ch.kartColor);

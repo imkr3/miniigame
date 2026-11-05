@@ -19,7 +19,8 @@ const css = (n) => '#' + n.toString(16).padStart(6, '0');
 export class Track {
   constructor(def) {
     this.def = def;
-    const pts = def.points.map(([x, z, y = 0]) => new THREE.Vector3(x * def.scale, y, z * def.scale));
+    // 높이도 함께 키워서 경사 비율 유지
+    const pts = def.points.map(([x, z, y = 0]) => new THREE.Vector3(x * def.scale, y * def.scale, z * def.scale));
     this.curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal');
     this.length = this.curve.getLength();
     this.N = Math.round(this.length / SAMPLE_STEP);
@@ -58,6 +59,63 @@ export class Track {
     this.ramps = (def.ramps ?? []).map((k) => ({ d: pointD(k), glide: false }));
     for (const g of this.gaps) this.ramps.push({ d: g.launch, glide: true });
     this.bridges = (def.bridges ?? []).map(([a, b]) => [pointD(a), pointD(b)]);
+    this.buildShortcuts();
+  }
+
+  /** 지름길: 본선에서 벽이 뚫린 곳으로 나가 바깥 흙길을 지나 다시 본선으로 합류 */
+  buildShortcuts() {
+    const L = this.length;
+    this.openings = [];
+    this.shortcuts = (this.def.shortcuts ?? []).map((sc) => {
+      const dFrom = sc.from * L, dTo = sc.to * L, side = sc.side;
+      const out = this.wall + 7;
+      const pt = (d, lat) => { const p = this.at(d); return new THREE.Vector3(p.x + p.nx * lat * side, p.y, p.z + p.nz * lat * side); };
+      const A = pt(dFrom, this.hw * 0.3), A2 = pt(dFrom + 20, out), B2 = pt(dTo - 20, out), B = pt(dTo, this.hw * 0.3);
+      const mid = A2.clone().add(B2).multiplyScalar(0.5);
+      let curve = new THREE.CatmullRomCurve3([A, A2, mid, B2, B], false, 'centripetal');
+      // 지름길 가운데 부분이 본선 벽에 붙지 않도록 바깥으로 밀어냄 (몇 번 반복)
+      const half = (sc.width ?? 10) / 2, clear = this.wall + half + 3;
+      for (let iter = 0; iter < 3; iter++) {
+        const pts2 = curve.getSpacedPoints(24);
+        pts2.forEach((p, i) => {
+          if (i < 3 || i > pts2.length - 4) return;
+          const q = this.nearest(p.x, p.z);
+          if (Math.abs(q.lat) < clear) {
+            const sg = Math.sign(q.lat) || side, k = clear - Math.abs(q.lat);
+            p.x += q.s.nx * sg * k; p.z += q.s.nz * sg * k;
+          }
+        });
+        curve = new THREE.CatmullRomCurve3(pts2, false, 'centripetal');
+      }
+      const length = curve.getLength(), n = Math.round(length / SAMPLE_STEP);
+      const samples = [];
+      for (let i = 0; i <= n; i++) {
+        const u = i / n, p = curve.getPointAt(u), t = curve.getTangentAt(u), fl = Math.hypot(t.x, t.z) || 1;
+        samples.push({ x: p.x, y: p.y, z: p.z, tx: t.x / fl, tz: t.z / fl, nx: -t.z / fl, nz: t.x / fl, d: u * length, slope: t.y / fl });
+      }
+      const span = ((dTo - dFrom) % L + L) % L;
+      this.openings.push({ side, a: dFrom - 4, b: dFrom + 26 }, { side, a: dTo - 26, b: dTo + 4 });
+      const ratio = length / span;
+      // 짧을수록 흙길을 더 느리게 (지름길 이득을 구간 기준 20% 정도로)
+      return { ...sc, samples, length, dFrom, dTo, span, half, surface: Math.max(0.6, Math.min(0.85, ratio * 1.25)) };
+    });
+  }
+
+  /** 벽이 뚫린 곳인지 (side: 1 오른쪽, -1 왼쪽) */
+  isOpen(d, side) { return this.openings.some((o) => o.side === side && this.inRange(d, o.a, o.b)); }
+
+  /** 지름길 k 에서 가장 가까운 지점 */
+  nearestShortcut(k, x, z, hint) {
+    const sc = this.shortcuts[k], S = sc.samples;
+    let best = 0, bd = Infinity;
+    const from = hint === undefined || hint < 0 ? 0 : Math.max(0, hint - 25), to = hint === undefined || hint < 0 ? S.length - 1 : Math.min(S.length - 1, hint + 25);
+    for (let i = from; i <= to; i++) { const s = S[i], d = (s.x - x) ** 2 + (s.z - z) ** 2; if (d < bd) { bd = d; best = i; } }
+    const s = S[best];
+    const lat = (x - s.x) * s.nx + (z - s.z) * s.nz;
+    const along = Math.max(0, Math.min(sc.length, s.d + (x - s.x) * s.tx + (z - s.z) * s.tz));
+    const t = along / sc.length;
+    // 지름길 위 진행도를 본선 거리로 환산 (순위·랩 계산용)
+    return { i: best, lat, t, s, y: s.y, mainD: (sc.dFrom + t * sc.span) % this.length };
   }
 
   inRange(d, a, b) { return a <= b ? d >= a && d <= b : d >= a || d <= b; }
@@ -168,8 +226,10 @@ export class Track {
       : new THREE.MeshLambertMaterial({ color: th.wall, side: THREE.DoubleSide });
     const topMat = new THREE.MeshBasicMaterial({ color: th.wallTop, side: THREE.DoubleSide });
     for (const off of [this.wall, -this.wall]) {
-      strip(off, off, 0, 1.1, wallMat, 10);
-      strip(off - 0.25, off + 0.25, 1.12, 1.12, topMat, 10);
+      const side = Math.sign(off);
+      const wallKeep = (i) => keep(i) && !this.isOpen(S[i].d, side) && !this.isOpen(S[(i + 1) % N].d, side);
+      strip(off, off, 0, 1.1, wallMat, 10, wallKeep);
+      strip(off - 0.25, off + 0.25, 1.12, 1.12, topMat, 10, wallKeep);
     }
 
     // 높은 곳의 받침: 흙둑(옆면) 또는 기둥(고가도로), 떠 있는 트랙은 바닥판
@@ -177,10 +237,10 @@ export class Track {
     const raised = (i) => keep(i) && S[i].y > 0.3 && !this.onBridge(S[i].d);
     if (this.def.floating) {
       strip(-this.wall, this.wall, -1.6, -1.6, dirtMat, 10);
-      for (const off of [this.wall, -this.wall]) strip(off, off, -1.6, 0, dirtMat, 10);
+      for (const off of [this.wall, -this.wall]) strip(off, off, -1.6, 0, dirtMat, 10, (i) => keep(i) && !this.isOpen(S[i].d, Math.sign(off)));
     } else {
       for (const off of [this.wall, -this.wall]) {
-        const m = strip(off, off, 0, 0, dirtMat, 10, raised);
+        const m = strip(off, off, 0, 0, dirtMat, 10, (i) => raised(i) && !this.isOpen(S[i].d, Math.sign(off)));
         const arr = m.geometry.attributes.position.array;
         for (let k = 1; k < arr.length; k += 6) arr[k] = -0.1; // 아래쪽 꼭짓점을 땅까지 내려 흙둑 옆면으로
         m.geometry.computeVertexNormals();
@@ -266,6 +326,8 @@ export class Track {
       }
     }
 
+    this.buildShortcutMeshes(g, dirtMat);
+
     // 아이템 박스 위치 (줄마다 4개)
     this.boxSpots = [];
     for (const f of this.def.boxes) {
@@ -277,10 +339,77 @@ export class Track {
     return g;
   }
 
+  buildShortcutMeshes(g, dirtMat) {
+    const th = this.def.theme;
+    const dirtTex = canvasTexture(64, 128, (ctx, w, h) => {
+      ctx.fillStyle = this.def.floating ? '#b08968' : '#8a6a45'; ctx.fillRect(0, 0, w, h);
+      for (let i = 0; i < 300; i++) { ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.12})`; ctx.fillRect(Math.random() * w, Math.random() * h, 3, 3); }
+      ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(w * 0.25, 0, 5, h); ctx.fillRect(w * 0.7, 0, 5, h); // 바퀴 자국
+      if (this.def.floating) { ctx.fillStyle = 'rgba(0,0,0,.25)'; for (let y = 0; y < h; y += 16) ctx.fillRect(0, y, w, 2); } // 널빤지
+    });
+    const mat = new THREE.MeshLambertMaterial({ map: dirtTex, side: THREE.DoubleSide });
+    const postMat = new THREE.MeshLambertMaterial({ color: 0xfacc15 });
+    for (const sc of this.shortcuts) {
+      const S = sc.samples;
+      const ribbon = (a, b, y0, y1, material) => {
+        const p = [], u = [], ix = [];
+        S.forEach((s, i) => {
+          p.push(s.x + s.nx * a, s.y + y0, s.z + s.nz * a, s.x + s.nx * b, s.y + y1, s.z + s.nz * b);
+          u.push(0, s.d / 8, 1, s.d / 8);
+          if (i < S.length - 1) { const k = i * 2; ix.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+        });
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
+        geo.setIndex(ix);
+        geo.computeVertexNormals();
+        g.add(new THREE.Mesh(geo, material));
+      };
+      ribbon(-sc.half, sc.half, 0.015, 0.015, mat);
+      if (this.def.floating) { ribbon(-sc.half, sc.half, -0.8, -0.8, dirtMat); for (const s of [-1, 1]) ribbon(s * sc.half, s * sc.half, -0.8, 0, dirtMat); }
+      else if (S.some((s) => s.y > 0.5)) for (const s of [-1, 1]) ribbon(s * sc.half, s * sc.half, 0, 0, dirtMat); // (높은 지름길은 아래 흙둑으로 대충 메움)
+      // 가장자리 노란 말뚝
+      for (let i = 4; i < S.length - 4; i += 5) {
+        for (const sd of [-1, 1]) {
+          const s = S[i];
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1, 5), postMat);
+          post.position.set(s.x + s.nx * (sc.half + 0.4) * sd, s.y + 0.5, s.z + s.nz * (sc.half + 0.4) * sd);
+          g.add(post);
+        }
+      }
+      // 입구 표지판
+      const s0 = this.at(sc.dFrom - 10);
+      const signTex = canvasTexture(128, 64, (ctx, w, h) => {
+        ctx.fillStyle = '#fde047'; ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#111'; ctx.font = '900 24px system-ui, sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(sc.side > 0 ? '지름길 ▶' : '◀ 지름길', w / 2, 40);
+      }, false);
+      const sign = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 0.2), new THREE.MeshBasicMaterial({ map: signTex }));
+      sign.position.set(s0.x + s0.nx * (this.wall + 1.5) * sc.side, s0.y + 3, s0.z + s0.nz * (this.wall + 1.5) * sc.side);
+      sign.rotation.y = Math.atan2(s0.tx, s0.tz) + Math.PI;
+      g.add(sign);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 3, 5), new THREE.MeshLambertMaterial({ color: 0x6b7280 }));
+      pole.position.set(sign.position.x, s0.y + 1.5, sign.position.z);
+      g.add(pole);
+      // 지름길 가운데 가속 발판
+      const m = S[Math.floor(S.length / 2)];
+      this.boostPads.push({ d: -1, x: m.x, y: m.y, z: m.z });
+      const arrowTex = canvasTexture(64, 64, (ctx, w, h) => {
+        ctx.fillStyle = '#f59e0b'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = '#fef08a';
+        for (const y of [8, 34]) { ctx.beginPath(); ctx.moveTo(8, y + 22); ctx.lineTo(32, y); ctx.lineTo(56, y + 22); ctx.lineTo(44, y + 22); ctx.lineTo(32, y + 12); ctx.lineTo(20, y + 22); ctx.fill(); }
+      }, false);
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: arrowTex }));
+      pad.rotation.order = 'YXZ';
+      pad.rotation.set(-Math.PI / 2, Math.atan2(m.tx, m.tz) + Math.PI, 0);
+      pad.position.set(m.x, m.y + 0.05, m.z);
+      g.add(pad);
+    }
+  }
+
   /** 트랙 밖 장식 (InstancedMesh 로 가볍게) */
   addScenery(g, quality) {
     const th = this.def.theme, b = this.bounds;
-    const count = Math.round(220 * quality);
+    const count = Math.round(320 * quality);
     const spots = [];
     let tries = 0;
     while (spots.length < count && tries++ < count * 20) {
@@ -289,6 +418,7 @@ export class Track {
       // 트랙(높이 무관)과 충분히 떨어진 곳만
       let ok = true;
       for (let i = 0; i < this.N; i += 3) { const s = this.samples[i]; if ((s.x - x) ** 2 + (s.z - z) ** 2 < (this.wall + 5) ** 2) { ok = false; break; } }
+      for (const sc of this.shortcuts) for (const s of sc.samples) if (ok && (s.x - x) ** 2 + (s.z - z) ** 2 < (sc.half + 6) ** 2) ok = false;
       if (!ok) continue;
       spots.push({ x, z, s: 0.7 + Math.random() * 0.8, r: Math.random() * Math.PI * 2 });
     }
