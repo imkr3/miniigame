@@ -2,34 +2,37 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>미니게임</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #0b0c10; }
-    body { display: flex; align-items: center; justify-content: center; }
-    #stage { width: 100%; }
+    html, body { margin: 0; height: 100%; background: #0b0c10; overflow: hidden; }
+    #stage { height: 100vh; height: 100dvh; }
   </style>
 </head>
 <body>
 <div id="stage"></div>
 <script type="module">
-  // iframe 삽입용: embed.html?game=snake
-  // 게임 이벤트(start/gameover 등)는 부모 창으로 postMessage 된다.
+  // iframe 삽입용: embed.html?game=snake[&controls=always|never]
+  // 게임 이벤트(start/pause/resume/gameover)는 부모 창으로 postMessage 된다.
+  // 부모 창에서 { source:'miniigame-host', command:'pause'|'resume'|'start' } 를 보내면 제어할 수 있다.
   import { mountGame } from './src/registry.js';
 
-  const id = new URLSearchParams(location.search).get('game') || 'snake';
+  const q = new URLSearchParams(location.search);
+  const id = q.get('game') || 'snake';
+  const toParent = (msg) => window.parent !== window && window.parent.postMessage({ source: 'miniigame', ...msg }, '*');
+
   mountGame(id, document.getElementById('stage'), {
-    onEvent: (e) => window.parent !== window && window.parent.postMessage({ source: 'miniigame', ...e }, '*'),
+    fit: true,
+    controls: q.get('controls') || 'auto',
+    onEvent: toParent,
   }).then((game) => {
-    // iframe 크기에 맞춰 비율 유지하며 최대한 크게 (HUD 높이 약 40px 제외)
-    const fit = () => {
-      const hud = game.root.querySelector('.mg-hud').offsetHeight || 40;
-      const w = Math.min(innerWidth, (innerHeight - hud) * game.width / game.height);
-      game.root.style.maxWidth = `${Math.floor(w)}px`;
-    };
-    addEventListener('resize', fit);
-    fit();
-  }).catch((err) => { document.body.textContent = err.message; });
+    toParent({ type: 'ready', game: id });
+    window.addEventListener('message', (e) => {
+      if (e.data?.source !== 'miniigame-host') return;
+      const cmd = e.data.command;
+      if (['start', 'pause', 'resume'].includes(cmd)) game[cmd]();
+    });
+  }).catch((err) => { document.body.style.color = '#fff'; document.body.textContent = err.message; });
 </script>
 </body>
 </html>

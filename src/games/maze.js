@@ -32,7 +32,8 @@ export default class Maze extends GameBase {
     id: 'maze',
     title: '미로 추격',
     description: '점을 모두 모으세요. 큰 점을 먹으면 잠시 추격자를 잡을 수 있어요.',
-    controls: '방향키 / WASD / 스와이프',
+    controls: '방향키 / WASD (미리 눌러두면 갈림길에서 꺾어요)',
+    touchControls: '화면을 밀어서 방향 전환 (또는 아래 방향 버튼)',
   };
 
   constructor(container, opts = {}) {
@@ -71,6 +72,8 @@ export default class Maze extends GameBase {
     }));
     this.fright = 0;
     this.combo = 0;
+    this.freeze = 1.2; // 시작 전 "준비" 시간
+    this.dying = 0;
     this.updateInfo();
   }
 
@@ -124,13 +127,30 @@ export default class Maze extends GameBase {
     const kind = this.dots.get(key);
     if (!kind) return;
     this.dots.delete(key);
-    if (kind === 'dot') this.addScore(10);
-    else { this.addScore(50); this.fright = FRIGHT_TIME; this.combo = 0; }
+    if (kind === 'dot') { this.addScore(10); this.sound('dot'); }
+    else {
+      this.addScore(50);
+      this.fright = FRIGHT_TIME;
+      this.combo = 0;
+      this.sound('power');
+      this.burst((p.x + 0.5) * CELL, (p.y + 0.5) * CELL, { color: '#fde68a', count: 14, speed: 120 });
+    }
   }
 
   pos(e) { return { x: e.x + e.dir.x * e.t, y: e.y + e.dir.y * e.t }; }
 
   update(dt) {
+    if (this.freeze > 0) { this.freeze -= dt; return; }
+    if (this.dying > 0) {
+      this.dying -= dt;
+      if (this.dying <= 0) {
+        this.lives--;
+        this.updateInfo();
+        if (this.lives <= 0) return this.gameOver();
+        this.resetPositions();
+      }
+      return;
+    }
     if (this.fright > 0) this.fright = Math.max(0, this.fright - dt);
 
     this.move(this.player, dt, (p) => this.choosePlayerDir(p), (p) => this.eatAt(p));
@@ -148,27 +168,43 @@ export default class Maze extends GameBase {
       if (Math.hypot(cp.x - pp.x, cp.y - pp.y) > 0.6) continue;
       if (this.fright > 0) {
         this.combo++;
-        this.addScore(100 * 2 ** (this.combo - 1));
+        const pts = 100 * 2 ** (this.combo - 1);
+        this.addScore(pts);
+        const cx = (cp.x + 0.5) * CELL, cy = (cp.y + 0.5) * CELL;
+        this.floatText(cx, cy, `+${pts}`);
+        this.burst(cx, cy, { color: c.color, count: 18, speed: 150 });
+        this.sound('bonus');
+        this.vibrate(25);
         Object.assign(c, { x: c.home.x, y: c.home.y, dir: STOP, t: 0, wait: 2 });
       } else {
-        this.lives--;
-        if (this.lives <= 0) { this.updateInfo(); return this.gameOver(); }
-        return this.resetPositions();
+        this.dying = 1.1;
+        this.sound('hit');
+        this.shake(8);
+        this.vibrate(150);
+        this.burst((pp.x + 0.5) * CELL, (pp.y + 0.5) * CELL, { color: '#2dd4bf', count: 26, speed: 170 });
+        return;
       }
     }
 
     if (this.dots.size === 0) {
       this.round++;
       this.addScore(500);
+      this.sound('levelup');
       this.setupRound();
+      this.floatText(this.width / 2, this.height / 2 + 30, '라운드 클리어! +500', '#fde68a', 20);
     }
   }
 
   draw(ctx) {
-    // 벽
-    ctx.fillStyle = '#1e3a5f';
+    // 벽: 이웃한 벽끼리 이어서 그림
+    const wall = (x, y) => MAP[y]?.[x] === '#';
+    const I = 5;
+    ctx.fillStyle = '#1d3557';
     MAP.forEach((row, y) => [...row].forEach((ch, x) => {
-      if (ch === '#') roundRect(ctx, x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4, 6);
+      if (ch !== '#') return;
+      roundRect(ctx, x * CELL + I, y * CELL + I, CELL - I * 2, CELL - I * 2, 5);
+      if (wall(x + 1, y)) ctx.fillRect(x * CELL + CELL / 2, y * CELL + I, CELL, CELL - I * 2);
+      if (wall(x, y + 1)) ctx.fillRect(x * CELL + I, y * CELL + CELL / 2, CELL - I * 2, CELL);
     }));
 
     // 점
@@ -183,8 +219,9 @@ export default class Maze extends GameBase {
     // 플레이어: 민트색 원 + 진행 방향 눈
     const pp = this.pos(this.player);
     const px = (pp.x + 0.5) * CELL, py = (pp.y + 0.5) * CELL;
+    const pr = CELL * 0.4 * (this.dying > 0 ? Math.max(0, this.dying - 0.3) / 0.8 : 1);
     ctx.fillStyle = '#2dd4bf';
-    ctx.beginPath(); ctx.arc(px, py, CELL * 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
     const look = isZero(this.player.dir) ? DIRS.right : this.player.dir;
     ctx.fillStyle = '#0f172a';
     ctx.beginPath(); ctx.arc(px + look.x * 5, py + look.y * 5, 3, 0, Math.PI * 2); ctx.fill();
@@ -198,6 +235,21 @@ export default class Maze extends GameBase {
       ctx.beginPath();
       ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
       ctx.closePath(); ctx.fill();
+      // 눈
+      const look2 = isZero(c.dir) ? DIRS.down : c.dir;
+      ctx.fillStyle = this.fright > 0 ? '#1e293b' : '#fff';
+      ctx.beginPath();
+      ctx.arc(cx - 4 + look2.x * 2, cy - 2 + look2.y * 2, 2.5, 0, Math.PI * 2);
+      ctx.arc(cx + 4 + look2.x * 2, cy - 2 + look2.y * 2, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (this.state === 'playing' && this.freeze > 0) {
+      ctx.fillStyle = '#fde68a';
+      ctx.font = '800 22px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('준비!', this.width / 2, (9 + 0.5) * CELL + 8);
+      ctx.textAlign = 'start';
     }
   }
 }

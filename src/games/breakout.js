@@ -1,17 +1,22 @@
 import { GameBase, roundRect } from '../engine.js';
 
-const W = 480, H = 400;
-const BRICK_COLS = 8, BRICK_ROWS = 5, BRICK_H = 18, BRICK_GAP = 4, BRICK_TOP = 50;
-const ROW_COLORS = ['#f43f5e', '#fb923c', '#facc15', '#4ade80', '#38bdf8'];
-const PADDLE_W = 80, PADDLE_H = 10, PADDLE_Y = H - 30, BALL_R = 6;
+const W = 480, H = 520;
+const BRICK_COLS = 8, BRICK_ROWS = 6, BRICK_H = 18, BRICK_GAP = 5, BRICK_TOP = 56;
+const ROW_COLORS = ['#f43f5e', '#fb923c', '#facc15', '#4ade80', '#38bdf8', '#a78bfa'];
+const PADDLE_W = 84, PADDLE_H = 12, PADDLE_Y = H - 40, BALL_R = 6;
+const MAX_SPEED = 560;
 
 export default class Breakout extends GameBase {
   static meta = {
     id: 'breakout',
     title: '벽돌깨기',
-    description: '공을 튕겨 벽돌을 모두 깨세요.',
-    controls: '←→ 또는 마우스/터치 드래그 · Space/탭 발사',
+    description: '공을 튕겨 벽돌을 모두 깨세요. 패들 가장자리로 받을수록 공이 비스듬히 날아가요.',
+    controls: '마우스 이동 또는 ←→ · 클릭/Space 발사',
+    touchControls: '화면을 좌우로 끌어 패들 이동 · 탭해서 발사',
   };
+  static pad = { left: 'lr', buttons: [{ action: 'action', label: '발사', primary: true, wide: true }] };
+  static gestures = { tap: 'action' }; // 스와이프는 패들 드래그에 사용
+  static mouseClick = 'action';
 
   constructor(container, opts = {}) {
     super(container, { width: W, height: H, ...opts });
@@ -21,6 +26,7 @@ export default class Breakout extends GameBase {
     this.lives = 3;
     this.level = 1;
     this.paddle = { x: W / 2 - PADDLE_W / 2 };
+    this.dragX = null;
     this.buildBricks();
     this.resetBall();
   }
@@ -29,16 +35,21 @@ export default class Breakout extends GameBase {
     const bw = (W - BRICK_GAP * (BRICK_COLS + 1)) / BRICK_COLS;
     this.bricks = [];
     for (let r = 0; r < BRICK_ROWS; r++)
-      for (let c = 0; c < BRICK_COLS; c++)
+      for (let c = 0; c < BRICK_COLS; c++) {
+        // 레벨이 오르면 위쪽 줄은 두 번 맞아야 깨짐, 일부 칸은 비움
+        if (this.level >= 3 && (r + c + this.level) % 7 === 0) continue;
+        const hp = this.level >= 2 && r < Math.min(this.level - 1, 3) ? 2 : 1;
         this.bricks.push({
           x: BRICK_GAP + c * (bw + BRICK_GAP), y: BRICK_TOP + r * (BRICK_H + BRICK_GAP),
-          w: bw, h: BRICK_H, color: ROW_COLORS[r], points: (BRICK_ROWS - r) * 10,
+          w: bw, h: BRICK_H, color: ROW_COLORS[r], points: (BRICK_ROWS - r) * 10, hp, maxHp: hp,
         });
+      }
   }
 
   resetBall() {
-    this.ball = { x: 0, y: 0, vx: 0, vy: 0, stuck: true };
-    this.speed = 280 + (this.level - 1) * 30;
+    this.ball = { x: this.paddle.x + PADDLE_W / 2, y: PADDLE_Y - BALL_R - 1, vx: 0, vy: 0, stuck: true };
+    this.trail = [];
+    this.speed = 300 + (this.level - 1) * 25;
     this.updateInfo();
   }
 
@@ -51,49 +62,79 @@ export default class Breakout extends GameBase {
     b.vx = Math.cos(a) * this.speed;
     b.vy = Math.sin(a) * this.speed;
     b.stuck = false;
+    this.sound('bounce');
   }
 
-  onAction(action) { if (action === 'action') this.launch(); }
+  onAction(action) { if (action === 'action' || action === 'up') this.launch(); }
+
+  movePaddle(dt) {
+    const p = this.paddle, ptr = this.pointer;
+    if (this.isDown('left')) p.x -= 460 * dt;
+    if (this.isDown('right')) p.x += 460 * dt;
+    if (ptr.type === 'mouse') {
+      if (ptr.moved) { p.x = ptr.x - PADDLE_W / 2; ptr.moved = false; }
+    } else if (ptr.down) {
+      // 터치는 상대 이동: 손가락이 패들을 가리지 않도록 화면 어디서나 끌기
+      if (this.dragX !== null) p.x += (ptr.x - this.dragX) * 1.3;
+      this.dragX = ptr.x;
+    } else this.dragX = null;
+    p.x = Math.max(0, Math.min(W - PADDLE_W, p.x));
+  }
 
   update(dt) {
-    // 패들 이동: 키보드 또는 포인터
-    const p = this.paddle;
-    if (this.isDown('left')) p.x -= 420 * dt;
-    if (this.isDown('right')) p.x += 420 * dt;
-    if (this.pointer.down) p.x = this.pointer.x - PADDLE_W / 2;
-    p.x = Math.max(0, Math.min(W - PADDLE_W, p.x));
-
-    const b = this.ball;
+    this.movePaddle(dt);
+    const b = this.ball, p = this.paddle;
     if (b.stuck) { b.x = p.x + PADDLE_W / 2; b.y = PADDLE_Y - BALL_R - 1; return; }
 
-    // 축별로 나눠 이동해서 어느 면에 부딪혔는지 판정
+    // 빠른 공이 벽돌을 뚫지 않도록 잘게 나눠 이동
+    const steps = Math.ceil((this.speed * dt) / 4);
+    for (let i = 0; i < steps && this.state === 'playing'; i++) this.step(dt / steps);
+
+    this.trail.push({ x: b.x, y: b.y });
+    if (this.trail.length > 8) this.trail.shift();
+  }
+
+  step(dt) {
+    const b = this.ball, p = this.paddle;
     b.x += b.vx * dt;
-    if (b.x < BALL_R || b.x > W - BALL_R) { b.vx *= -1; b.x = Math.max(BALL_R, Math.min(W - BALL_R, b.x)); }
+    if (b.x < BALL_R || b.x > W - BALL_R) {
+      b.vx *= -1; b.x = Math.max(BALL_R, Math.min(W - BALL_R, b.x)); this.sound('bounce');
+    }
     if (this.hitBrick()) b.vx *= -1;
 
     b.y += b.vy * dt;
-    if (b.y < BALL_R) { b.vy = Math.abs(b.vy); b.y = BALL_R; }
+    if (b.y < BALL_R) { b.vy = Math.abs(b.vy); b.y = BALL_R; this.sound('bounce'); }
     if (this.hitBrick()) b.vy *= -1;
 
     // 패들: 맞은 위치에 따라 반사각 변경
-    if (b.vy > 0 && b.y + BALL_R >= PADDLE_Y && b.y + BALL_R <= PADDLE_Y + PADDLE_H + 8 &&
+    if (b.vy > 0 && b.y + BALL_R >= PADDLE_Y && b.y - BALL_R <= PADDLE_Y + PADDLE_H &&
         b.x >= p.x - BALL_R && b.x <= p.x + PADDLE_W + BALL_R) {
-      const hit = (b.x - (p.x + PADDLE_W / 2)) / (PADDLE_W / 2); // -1 ~ 1
+      let hit = Math.max(-1, Math.min(1, (b.x - (p.x + PADDLE_W / 2)) / (PADDLE_W / 2)));
+      if (Math.abs(hit) < 0.1) hit = (hit < 0 ? -1 : 1) * (0.1 + Math.random() * 0.1); // 수직 무한 반복 방지
       const a = -Math.PI / 2 + hit * 1.05;
+      this.speed = Math.min(MAX_SPEED, this.speed + 4);
       b.vx = Math.cos(a) * this.speed;
       b.vy = Math.sin(a) * this.speed;
       b.y = PADDLE_Y - BALL_R;
+      this.sound('bounce');
     }
 
-    if (b.y > H + BALL_R) {
+    if (b.y > H + BALL_R * 2) {
       this.lives--;
-      if (this.lives <= 0) { this.updateInfo(); return this.gameOver(); }
+      this.sound('hit');
+      this.shake(6);
+      this.vibrate(120);
+      this.updateInfo();
+      if (this.lives <= 0) return this.gameOver();
       this.resetBall();
+      return;
     }
 
     if (this.bricks.length === 0) {
       this.level++;
       this.addScore(200);
+      this.sound('levelup');
+      this.floatText(W / 2, H / 2, `레벨 ${this.level}!`, '#93c5fd', 26);
       this.buildBricks();
       this.resetBall();
     }
@@ -104,17 +145,51 @@ export default class Breakout extends GameBase {
     const i = this.bricks.findIndex((k) =>
       b.x + BALL_R > k.x && b.x - BALL_R < k.x + k.w && b.y + BALL_R > k.y && b.y - BALL_R < k.y + k.h);
     if (i < 0) return false;
-    this.addScore(this.bricks[i].points);
-    this.bricks.splice(i, 1);
+    const k = this.bricks[i];
+    k.hp--;
+    if (k.hp <= 0) {
+      this.addScore(k.points);
+      this.bricks.splice(i, 1);
+      this.burst(k.x + k.w / 2, k.y + k.h / 2, { color: k.color, count: 12, speed: 150, life: 0.5, gravity: 400 });
+      this.sound('brick');
+    } else {
+      this.sound('lock');
+    }
     return true;
   }
 
   draw(ctx) {
-    for (const k of this.bricks) { ctx.fillStyle = k.color; roundRect(ctx, k.x, k.y, k.w, k.h, 4); }
-    ctx.fillStyle = '#e2e8f0';
-    roundRect(ctx, this.paddle.x, PADDLE_Y, PADDLE_W, PADDLE_H, 5);
-    ctx.beginPath();
-    ctx.arc(this.ball.x, this.ball.y, BALL_R, 0, Math.PI * 2);
-    ctx.fill();
+    for (const k of this.bricks) {
+      ctx.globalAlpha = k.hp < k.maxHp ? 0.55 : 1;
+      ctx.fillStyle = k.color;
+      roundRect(ctx, k.x, k.y, k.w, k.h, 4);
+      if (k.maxHp > 1) { // 단단한 벽돌 표시
+        ctx.fillStyle = 'rgba(255,255,255,.35)';
+        ctx.fillRect(k.x + 4, k.y + k.h / 2 - 1, k.w - 8, 2);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    const g = ctx.createLinearGradient(0, PADDLE_Y, 0, PADDLE_Y + PADDLE_H);
+    g.addColorStop(0, '#f8fafc'); g.addColorStop(1, '#94a3b8');
+    ctx.fillStyle = g;
+    roundRect(ctx, this.paddle.x, PADDLE_Y, PADDLE_W, PADDLE_H, 6);
+
+    this.trail?.forEach((t, i) => {
+      ctx.globalAlpha = (i / this.trail.length) * 0.3;
+      ctx.fillStyle = '#93c5fd';
+      ctx.beginPath(); ctx.arc(t.x, t.y, BALL_R * (i / this.trail.length), 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(this.ball.x, this.ball.y, BALL_R, 0, Math.PI * 2); ctx.fill();
+
+    if (this.state === 'playing' && this.ball.stuck) {
+      ctx.fillStyle = 'rgba(229,231,235,.7)';
+      ctx.font = '600 15px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(this.touchMode ? '탭해서 발사' : '클릭 / Space로 발사', W / 2, PADDLE_Y - 40);
+      ctx.textAlign = 'start';
+    }
   }
 }

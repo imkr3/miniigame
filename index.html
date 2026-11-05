@@ -2,63 +2,110 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0c10">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
   <title>미니게임</title>
   <style>
-    body { margin: 0; background: #0b0c10; color: #e5e7eb; font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
-    main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
-    h1 { font-size: 22px; margin: 0 0 16px; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #0b0c10; color: #e5e7eb; -webkit-text-size-adjust: 100%;
+      font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
+    main { max-width: 960px; margin: 0 auto; padding: calc(28px + env(safe-area-inset-top)) 18px 40px; }
+    header h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -.5px; }
+    header p { margin: 0 0 24px; color: #9ca3af; }
     .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-    .card { background: #161922; border: 1px solid #262a36; border-radius: 12px; padding: 18px 12px; text-align: center; cursor: pointer; color: inherit; font: inherit; }
-    .card:hover { border-color: #3b82f6; }
-    .card .emoji { font-size: 34px; display: block; margin-bottom: 6px; }
-    #player[hidden], .list[hidden] { display: none; }
-    .back { background: none; border: 0; color: #93c5fd; cursor: pointer; font: inherit; padding: 0 0 12px; }
+    .card { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
+      background: #151821; border: 1px solid #232838; border-radius: 16px; padding: 18px; cursor: pointer; color: inherit; font: inherit;
+      transition: transform .15s, border-color .15s; overflow: hidden; touch-action: manipulation; }
+    .card::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 4px; background: var(--c); }
+    .card:hover { transform: translateY(-3px); border-color: var(--c); }
+    .card:active { transform: scale(.98); }
+    .card .emoji { font-size: 38px; line-height: 1; margin-bottom: 8px; }
+    .card .title { font-size: 18px; font-weight: 700; }
+    .card .desc { font-size: 13px; color: #9ca3af; }
+    .card .best { margin-top: 10px; font-size: 12px; color: #fbbf24; font-weight: 600; min-height: 1em; }
+    footer { margin-top: 32px; font-size: 12px; color: #6b7280; }
+
+    /* 게임 화면: 화면 전체를 쓰는 레이어 */
+    #player { position: fixed; inset: 0; display: flex; flex-direction: column; background: #0b0c10;
+      height: 100vh; height: 100dvh; padding-top: env(safe-area-inset-top); z-index: 10; }
+    #player[hidden] { display: none; }
+    .topbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; flex: none; }
+    .topbar button { background: #1b1f2b; border: 0; color: #e5e7eb; border-radius: 10px; padding: 8px 14px; cursor: pointer; font: inherit; font-size: 14px; }
+    .topbar .name { font-weight: 700; }
+    #stage { flex: 1; min-height: 0; width: 100%; max-width: 900px; margin: 0 auto; }
+    @media (min-width: 700px) { #stage { padding: 0 16px 16px; } #stage .mg-root { border-radius: 14px; } }
+    body.playing { overflow: hidden; }
   </style>
 </head>
 <body>
 <main>
-  <h1>미니게임</h1>
+  <header>
+    <h1>🎮 미니게임</h1>
+    <p>PC는 키보드·마우스, 모바일은 터치로 플레이할 수 있어요.</p>
+  </header>
   <div class="list" id="list"></div>
-  <div id="player" hidden>
-    <button class="back" id="back">← 목록으로</button>
-    <div id="stage"></div>
-  </div>
+  <footer>최고 점수는 이 브라우저에 저장됩니다.</footer>
 </main>
+<div id="player" hidden>
+  <div class="topbar">
+    <button id="back" type="button">← 목록</button>
+    <span class="name" id="name"></span>
+  </div>
+  <div id="stage"></div>
+</div>
 <script type="module">
-  import { GAMES, mountGame } from './src/registry.js';
+  import { GAMES, mountGame, getBest } from './src/registry.js';
 
   const $list = document.getElementById('list');
   const $player = document.getElementById('player');
   const $stage = document.getElementById('stage');
+  const $name = document.getElementById('name');
   let current = null;
 
-  for (const g of GAMES) {
-    const btn = document.createElement('button');
-    btn.className = 'card';
-    btn.innerHTML = `<span class="emoji">${g.emoji}</span>${g.title}`;
-    btn.onclick = () => open(g.id);
-    $list.appendChild(btn);
+  function renderList() {
+    $list.innerHTML = '';
+    for (const g of GAMES) {
+      const best = getBest(g.id);
+      const btn = document.createElement('button');
+      btn.className = 'card';
+      btn.style.setProperty('--c', g.color);
+      btn.innerHTML = `<span class="emoji">${g.emoji}</span><span class="title">${g.title}</span>
+        <span class="desc">${g.desc}</span><span class="best">${best ? `🏆 최고 ${best}` : ''}</span>`;
+      btn.onclick = () => { history.pushState({ game: g.id }, '', `#${g.id}`); open(g.id); };
+      $list.appendChild(btn);
+    }
   }
 
   async function open(id) {
+    const entry = GAMES.find((g) => g.id === id);
+    if (!entry) return close();
     current?.destroy();
-    $list.hidden = true;
+    $name.textContent = `${entry.emoji} ${entry.title}`;
     $player.hidden = false;
-    current = await mountGame(id, $stage, {
-      onEvent: (e) => console.log('[game event]', e),
-    });
-    history.replaceState(null, '', `#${id}`);
+    document.body.classList.add('playing');
+    current = await mountGame(id, $stage, { fit: true, onEvent: (e) => console.debug('[game]', e) });
   }
 
-  document.getElementById('back').onclick = () => {
+  function close() {
     current?.destroy();
     current = null;
     $player.hidden = true;
-    $list.hidden = false;
-    history.replaceState(null, '', location.pathname);
-  };
+    document.body.classList.remove('playing');
+    renderList();
+  }
 
+  document.getElementById('back').onclick = () => {
+    if (history.state?.game) history.back(); else { history.replaceState(null, '', location.pathname); close(); }
+  };
+  window.addEventListener('popstate', () => {
+    const id = location.hash.slice(1);
+    if (GAMES.some((g) => g.id === id)) open(id); else close();
+  });
+
+  renderList();
   const fromHash = location.hash.slice(1);
   if (GAMES.some((g) => g.id === fromHash)) open(fromHash);
 </script>
