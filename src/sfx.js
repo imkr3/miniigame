@@ -39,6 +39,10 @@ function tone(type, f0, f1, dur, vol, at) {
   osc.stop(at + dur + 0.02);
 }
 
+// 계속 이어지는 엔진 소리 (카트). 매 프레임 engine() 을 부르지 않으면 저절로 꺼짐
+let eng = null, engAt = 0;
+function engineOff() { if (eng) eng.g.gain.setTargetAtTime(0, ctx.currentTime, 0.04); }
+
 export const sfx = {
   get muted() { return muted; },
   setMuted(v) {
@@ -51,6 +55,28 @@ export const sfx = {
     if (!AC) return;
     if (!ctx) ctx = new AC();
     if (ctx.state === 'suspended') ctx.resume();
+  },
+  /** @param {number} freq 기본 음높이(Hz) @param {number} vol 음량 @param {number} [bright] 필터 주파수(높을수록 거친 소리) */
+  engine(freq, vol, bright = 700) {
+    if (!ctx || ctx.state !== 'running') return;
+    if (muted) return engineOff();
+    const now = ctx.currentTime;
+    if (!eng) {
+      const g = ctx.createGain(), lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass'; lp.Q.value = 3;
+      g.gain.value = 0;
+      const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
+      o1.type = 'sawtooth'; o2.type = 'square';
+      o1.connect(lp); o2.connect(lp); lp.connect(g).connect(ctx.destination);
+      o1.start(); o2.start();
+      eng = { g, lp, o1, o2 };
+      setInterval(() => { if (performance.now() - engAt > 150) engineOff(); }, 100);
+    }
+    engAt = performance.now();
+    eng.o1.frequency.setTargetAtTime(freq, now, 0.05);
+    eng.o2.frequency.setTargetAtTime(freq * 0.501, now, 0.05);
+    eng.lp.frequency.setTargetAtTime(bright, now, 0.1);
+    eng.g.gain.setTargetAtTime(vol, now, 0.05);
   },
   play(name) {
     const p = PRESETS[name];

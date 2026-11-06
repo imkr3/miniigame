@@ -516,7 +516,7 @@ export default class Blocks extends GameBase {
 
   statsText() {
     const s = this.stats;
-    return `블록 ${s.pieces}개 · ${this.lines}줄 · 스핀 ${s.spins}회 · 최대 콤보 ${Math.max(0, s.maxCombo)} · ${fmtTime(this.time)}`;
+    return `블록 ${s.pieces}개 · ${this.lines}줄 · 스핀 ${s.spins}회 · 최대 콤보 ${Math.max(0, s.maxCombo)} · ${fmtTime(this.time)} · 초당 ${(s.pieces / Math.max(1, this.time)).toFixed(2)}블록`;
   }
 
   updateInfo() {

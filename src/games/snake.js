@@ -13,7 +13,7 @@ export default class Snake extends GameBase {
   static meta = {
     id: 'snake',
     title: '스네이크',
-    description: '먹이를 먹고 몸을 늘리세요. 연속으로 빨리 먹으면 콤보! ⭐ 보너스 · 🧊 잠깐 느려짐 · ✂️ 꼬리 자르기. ⚙에서 벽 통과·장애물 모드',
+    description: '먹이를 먹고 몸을 늘리세요. 연속으로 빨리 먹으면 콤보! ⭐ 보너스 · 🧊 잠깐 느려짐 · ✂️ 꼬리 자르기. ⚙에서 벽 통과·장애물·포털 모드',
     controls: '방향키 / WASD',
     touchControls: '화면을 밀어서 방향 전환 (또는 아래 방향 버튼)',
   };
@@ -22,6 +22,7 @@ export default class Snake extends GameBase {
     { id: 'speed', label: '속도', type: 'select', default: 'normal', options: [['slow', '느림'], ['normal', '보통'], ['fast', '빠름']] },
     { id: 'wrap', label: '벽 통과 (반대편으로 나옴)', type: 'toggle', default: false },
     { id: 'rocks', label: '장애물 모드 (먹을수록 바위가 생김)', type: 'toggle', default: false },
+    { id: 'portals', label: '포털 (들어가면 반대 포털로 나옴, 먹이 10개마다 이동)', type: 'toggle', default: false },
   ];
 
   constructor(container, opts = {}) {
@@ -43,16 +44,33 @@ export default class Snake extends GameBase {
     this.item = null;
     this.rocks = [];
     this.food = null;
+    this.portals = null;
+    if (this.cfg.portals) this.movePortals();
     if (this.cfg.rocks) for (let i = 0; i < 3; i++) this.addRock();
     this.food = this.freeCell();
-    this.setRecord(this.cfg.wrap || this.cfg.rocks ? `snake-${this.cfg.wrap ? 'wrap' : ''}${this.cfg.rocks ? 'rocks' : ''}` : 'snake');
+    const tag = `${this.cfg.wrap ? 'wrap' : ''}${this.cfg.rocks ? 'rocks' : ''}${this.cfg.portals ? 'portal' : ''}`;
+    this.setRecord(tag ? `snake-${tag}` : 'snake');
     this.updateInfo();
   }
 
   occupied(x, y) {
     return this.snake.some((s) => s.x === x && s.y === y) || this.rocks.some((r) => r.x === x && r.y === y)
       || (this.food && this.food.x === x && this.food.y === y) || (this.bonus && this.bonus.x === x && this.bonus.y === y)
-      || (this.item && this.item.x === x && this.item.y === y);
+      || (this.item && this.item.x === x && this.item.y === y)
+      || (this.portals?.some((p) => p.x === x && p.y === y) ?? false);
+  }
+
+  /** 포털 한 쌍을 서로 멀리, 벽에서 한 칸 이상 떨어진 곳에 둔다 */
+  movePortals() {
+    this.portals = null;
+    const inner = (c) => c && c.x > 0 && c.y > 0 && c.x < COLS - 1 && c.y < ROWS - 1;
+    let a = null, b = null;
+    for (let k = 0; k < 40 && !inner(a); k++) a = this.freeCell(4);
+    for (let k = 0; k < 60; k++) {
+      const c = this.freeCell(4);
+      if (inner(c) && Math.abs(c.x - a.x) + Math.abs(c.y - a.y) >= 9) { b = c; break; }
+    }
+    if (inner(a) && b) this.portals = [a, b];
   }
 
   freeCell(avoidHead = 0) {
@@ -104,6 +122,12 @@ export default class Snake extends GameBase {
     const out = head.x < 0 || head.y < 0 || head.x >= COLS || head.y >= ROWS;
     if (out && this.cfg.wrap) head = { x: (head.x + COLS) % COLS, y: (head.y + ROWS) % ROWS, wrapped: true };
     const at = (o) => o && head.x === o.x && head.y === o.y;
+    const pi = this.portals ? this.portals.findIndex(at) : -1;
+    if (pi >= 0) { // 포털: 반대쪽 포털 칸으로 순간 이동 (같은 방향으로 계속)
+      const o = this.portals[1 - pi];
+      head = { x: o.x, y: o.y, wrapped: true };
+      this.sound('rotate');
+    }
     const eatFood = at(this.food);
     const body = eatFood ? this.snake : this.snake.slice(0, -1); // 꼬리는 이번 턴에 빠짐
     if ((out && !this.cfg.wrap) || body.some((s) => s.x === head.x && s.y === head.y) || this.rocks.some(at)) {
@@ -131,6 +155,7 @@ export default class Snake extends GameBase {
       if (this.eaten % 5 === 0 && !this.bonus) { const c = this.freeCell(); if (c) this.bonus = { ...c, t: BONUS_TIME }; }
       if (this.eaten % 7 === 3 && !this.item) { const c = this.freeCell(); if (c) this.item = { ...c, t: ITEM_TIME, kind: Math.random() < 0.5 ? 'ice' : 'cut' }; }
       if (this.cfg.rocks && this.eaten % 4 === 0) this.addRock();
+      if (this.portals && this.eaten % 10 === 0) this.movePortals();
     } else {
       this.snake.pop();
     }
@@ -175,6 +200,16 @@ export default class Snake extends GameBase {
 
     const now = performance.now();
     const pulse = 1 + Math.sin(now / 180) * 0.08;
+    if (this.portals) this.portals.forEach((p, i) => {
+      const cx = (p.x + 0.5) * CELL, cy = (p.y + 0.5) * CELL, col = i ? '#22d3ee' : '#c084fc';
+      ctx.fillStyle = i ? 'rgba(34,211,238,.18)' : 'rgba(192,132,252,.18)';
+      ctx.fillRect(p.x * CELL, p.y * CELL, CELL, CELL);
+      ctx.strokeStyle = col; ctx.lineWidth = 2.5;
+      for (let k = 0; k < 2; k++) {
+        const a0 = now / (i ? -260 : 260) + k * Math.PI;
+        ctx.beginPath(); ctx.arc(cx, cy, CELL / 2 - 3 - k * 3, a0, a0 + Math.PI * 1.2); ctx.stroke();
+      }
+    });
     if (this.food) {
       ctx.fillStyle = '#fb923c';
       ctx.beginPath(); ctx.arc((this.food.x + 0.5) * CELL, (this.food.y + 0.5) * CELL, (CELL / 2 - 3) * pulse, 0, Math.PI * 2); ctx.fill();
