@@ -2,13 +2,15 @@
 import * as THREE from '../../vendor/three.module.min.js';
 
 const mat = (color, opts = {}) => new THREE.MeshLambertMaterial({ color, ...opts });
+// 반짝이는 재질 (카트 차체·헬멧처럼 광택 있는 부분)
+const gloss = (color) => new THREE.MeshPhongMaterial({ color, shininess: 90, specular: 0x555555 });
 const mesh = (geo, m, x = 0, y = 0, z = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); return o; };
 /** parent.add() 는 parent 를 돌려주므로, 자식을 돌려주는 버전 */
 const put = (parent, obj) => { parent.add(obj); return obj; };
 
 function buildKart(kart, color) {
   const g = new THREE.Group();
-  const body = mat(color), dark = mat(0x1f2937), metal = mat(0x9ca3af), seat = mat(0x111827);
+  const body = gloss(color), dark = mat(0x1f2937), metal = gloss(0x9ca3af), seat = mat(0x111827);
   const wheels = [];
   let wheelR = 0.42, wheelW = 0.32, track = 0.78, base = 0.95;
   if (kart.id === 'buggy') { wheelR = 0.55; wheelW = 0.42; track = 0.9; }
@@ -39,6 +41,11 @@ function buildKart(kart, color) {
     g.add(mesh(new THREE.BoxGeometry(1.5, 0.15, 0.3), dark, 0, 0.35, 1.3));                      // 범퍼
   }
   g.add(mesh(new THREE.BoxGeometry(0.8, 0.5, 0.15), seat, 0, 0.85, -0.55));                      // 등받이
+  // 차체 위 흰 줄무늬 + 앞 전조등 + 번호판 느낌의 앞 패널
+  const white = gloss(0xffffff), lamp = new THREE.MeshBasicMaterial({ color: 0xfffbe6 });
+  const topY = kart.id === 'tank' ? 0.81 : kart.id === 'buggy' ? 0.73 : kart.id === 'sport' ? 0.59 : 0.65;
+  for (const s of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.12, 0.02, kart.id === 'sport' ? 2.3 : 1.7), white, s * 0.18, topY, 0.15));
+  for (const s of [-1, 1]) g.add(mesh(new THREE.SphereGeometry(0.1, 8, 6), lamp, s * 0.42, kart.id === 'tank' ? 0.62 : 0.5, base + (kart.id === 'sport' ? 0.35 : 0.42)));
   // 핸들
   const wheelSteer = mesh(new THREE.TorusGeometry(0.2, 0.04, 6, 12), dark, 0, 0.95, 0.45); wheelSteer.rotation.x = -0.9; g.add(wheelSteer);
   // 바퀴
@@ -76,12 +83,23 @@ function buildCharacter(ch) {
     const arm = mesh(new THREE.CapsuleGeometry(0.09, 0.4, 3, 6), c, s * 0.3, 0.55, 0.1);
     arm.rotation.x = -1.1; arm.rotation.z = s * -0.2;
     g.add(arm);
+    g.add(mesh(S(0.085), ch.id === 'robot' ? mat(0x94a3b8) : white, s * 0.27, 0.42, 0.37)); // 장갑 낀 손
   }
+  // 목도리 (캐릭터 강조색)
+  put(g, mesh(new THREE.TorusGeometry(0.24, 0.07, 6, 14), mat(ch.accent), 0, 0.82, -0.08)).rotation.x = Math.PI / 2;
   // 머리
   const head = new THREE.Group();
   head.position.set(0, 1.05, -0.05);
   g.add(head);
-  const eyes = (y, z, spread = 0.13, r = 0.06) => { for (const s of [-1, 1]) { head.add(mesh(S(r * 1.6), white, s * spread, y, z)); head.add(mesh(S(r), black, s * spread, y, z + r * 0.9)); } };
+  const shine = new THREE.MeshBasicMaterial({ color: 0xffffff }), blush = mat(0xfb7185, { transparent: true, opacity: 0.55 });
+  const eyes = (y, z, spread = 0.13, r = 0.06) => {
+    for (const s of [-1, 1]) {
+      head.add(mesh(S(r * 1.6), white, s * spread, y, z));
+      head.add(mesh(S(r), black, s * spread, y, z + r * 0.9));
+      head.add(mesh(S(r * 0.35), shine, s * spread + r * 0.35, y + r * 0.4, z + r * 1.75)); // 눈 반짝
+    }
+  };
+  const cheeks = (y, z, spread) => { for (const s of [-1, 1]) put(head, mesh(S(0.07), blush, s * spread, y, z)).scale.set(1.2, 0.7, 0.4); };
   switch (ch.id) {
     case 'robot':
       head.add(mesh(new THREE.BoxGeometry(0.6, 0.48, 0.5), c));
@@ -99,6 +117,7 @@ function buildCharacter(ch) {
       head.add(mesh(S(0.32), c));
       if (ch.id === 'penguin') put(head, mesh(S(0.25), a, 0, -0.04, 0.12)).scale.set(1, 1, 0.8);
       eyes(0.06, 0.28, 0.12, 0.045);
+      cheeks(-0.06, 0.25, 0.2);
       put(head, mesh(new THREE.ConeGeometry(0.1, 0.28, 8), mat(0xf59e0b), 0, -0.05, 0.38)).rotation.x = Math.PI / 2;
       if (ch.id === 'duck') put(head, mesh(new THREE.SphereGeometry(0.06, 6, 5), c, 0, 0.33, 0.02)).scale.set(1, 2, 0.6);
       break;
@@ -108,6 +127,7 @@ function buildCharacter(ch) {
       head.add(mesh(S(0.05), black, 0, -0.03, 0.38));                                                    // 코
       if (ch.id === 'panda') for (const s of [-1, 1]) put(head, mesh(S(0.1), black, s * 0.13, 0.06, 0.26)).scale.set(1, 1.2, 0.5);
       eyes(0.07, 0.29, 0.13, 0.045);
+      cheeks(-0.06, 0.26, 0.21);
       if (ch.id === 'rabbit') {
         for (const s of [-1, 1]) { const e = mesh(new THREE.CapsuleGeometry(0.07, 0.42, 3, 8), c, s * 0.13, 0.5, -0.03); e.rotation.z = s * -0.15; head.add(e); put(head, mesh(new THREE.CapsuleGeometry(0.035, 0.32, 3, 6), a, s * 0.13, 0.5, 0.02)).rotation.z = s * -0.15; }
       } else if (ch.id === 'cat') {

@@ -675,8 +675,10 @@ export default class Blocks extends GameBase {
 
   draw(ctx) {
     // 보드 배경 + 격자 (한 번 그려 두고 재사용)
-    this.drawCached(ctx, `blocks-grid-${this.mode === 'sprint' ? 's' : 'n'}`, 0, 0, BW, ROWS * CELL, (c) => {
-      c.fillStyle = '#131620';
+    this.drawCached(ctx, `blocks-grid2-${this.mode === 'sprint' ? 's' : 'n'}`, 0, 0, BW, ROWS * CELL, (c) => {
+      const bg = c.createLinearGradient(0, 0, 0, ROWS * CELL);
+      bg.addColorStop(0, '#161a2b'); bg.addColorStop(1, '#0e1018');
+      c.fillStyle = bg;
       c.fillRect(0, 0, BW, ROWS * CELL);
       c.strokeStyle = '#1b1f2c';
       c.lineWidth = 1;
@@ -685,6 +687,11 @@ export default class Blocks extends GameBase {
       for (let y = 1; y < ROWS; y++) { c.moveTo(0, y * CELL + 0.5); c.lineTo(BW, y * CELL + 0.5); }
       c.stroke();
       if (this.mode === 'sprint') { c.fillStyle = 'rgba(250,204,21,.06)'; c.fillRect(0, 0, BW, ROWS * CELL); }
+      // 보드 테두리 (은은하게 빛나는 선)
+      c.strokeStyle = 'rgba(129,140,248,.55)'; c.lineWidth = 2;
+      c.shadowColor = '#6366f1'; c.shadowBlur = 8;
+      c.strokeRect(1, 1, BW - 2, ROWS * CELL - 2);
+      c.shadowBlur = 0;
     });
 
     this.board.forEach((row, y) => row.forEach((c, x) => { if (c >= 0) this.drawCell(ctx, x * CELL, y * CELL, CELL, COLORS[c]); }));

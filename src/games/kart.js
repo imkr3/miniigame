@@ -16,7 +16,7 @@ const DRIFT_BOOST = [0, 0.7, 1.1, 1.6];       // 단계별 미니 터보 시간
 const TURBO_NAMES = ['', '미니 터보!', '슈퍼 터보!', '울트라 터보!'];
 const SPARK_COLORS = [0xffffff, 0x60a5fa, 0xfb923c, 0xc084fc];
 const RANK_POINTS = [1000, 800, 650, 520, 420, 320, 220, 120];
-const DIFF = { easy: { skill: 0.86, rubber: 0.6, items: 0.5 }, normal: { skill: 0.94, rubber: 1, items: 1 }, hard: { skill: 1.0, rubber: 1.3, items: 1.4 } };
+const DIFF = { easy: { skill: 0.9, rubber: 0.8, items: 0.7 }, normal: { skill: 0.985, rubber: 1.2, items: 1.2 }, hard: { skill: 1.04, rubber: 1.5, items: 1.6 } };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 function seededRandom(seed) {
@@ -134,7 +134,15 @@ export default class Kart extends GameBase {
     this.scene.add(this.trackGroup);
     this.trackIdx = idx;
     const th = def.theme;
-    this.scene.background = new THREE.Color(th.sky);
+    // 하늘: 위는 진하고 지평선은 안개색으로 (화면 기준 세로 그라데이션)
+    this.scene.background?.dispose?.();
+    const sc = document.createElement('canvas'); sc.width = 2; sc.height = 256;
+    const sx = sc.getContext('2d'), gr = sx.createLinearGradient(0, 0, 0, 256);
+    const top = new THREE.Color(th.sky).multiplyScalar(th.night ? 0.6 : 0.82), mid = new THREE.Color(th.sky), hor = new THREE.Color(th.fog);
+    gr.addColorStop(0, '#' + top.getHexString()); gr.addColorStop(0.35, '#' + mid.getHexString()); gr.addColorStop(0.62, '#' + hor.getHexString()); gr.addColorStop(1, '#' + hor.getHexString());
+    sx.fillStyle = gr; sx.fillRect(0, 0, 2, 256);
+    const bg = new THREE.CanvasTexture(sc); bg.colorSpace = THREE.SRGBColorSpace;
+    this.scene.background = bg;
     this.scene.fog = new THREE.Fog(th.fog, 60, th.night ? 260 : 380);
     this.hemi.intensity = th.night ? 0.55 : 1.1;
     this.sun.intensity = th.night ? 0.5 : 1.6;
@@ -752,10 +760,11 @@ export default class Kart extends GameBase {
     // 본선 벽 (뚫린 곳 제외). 안에서 밖으로 / 밖(지름길)에서 안으로 둘 다 막음
     const side = Math.sign(n.lat) || 1;
     const open = tr.isOpen(n.d, side);
-    if (!open && !inGap && r.y < n.y + 1.0) {
+    const wasInside = r.zone === 'main' || r.zone === undefined;
+    // 본선 안에 있던 카트는 점프 중이어도 벽 밖으로 못 나감 (높이 날아 벽을 넘어 코스 밖으로 빠지던 문제)
+    if (!open && !inGap && (r.y < n.y + 1.0 || (wasInside && !r.gliding))) {
       const lim = tr.wall - 1.0;
-      const wasInside = r.zone === 'main' || r.zone === undefined;
-      if (wasInside && Math.abs(n.lat) > lim && Math.abs(n.lat) < tr.wall + 3) {
+      if (wasInside && Math.abs(n.lat) > lim) {
         const push = Math.abs(n.lat) - lim;
         r.x -= n.s.nx * side * push; r.z -= n.s.nz * side * push;
         this.wallBump(r, n);
@@ -772,6 +781,7 @@ export default class Kart extends GameBase {
     r.offT = zone === 'off' && r.grounded ? (r.offT ?? 0) + dt : 0;
     if (r.y < Math.min(n.y, groundY > -Infinity ? groundY : n.y) - 10 || r.offT > 2) { this.respawn(r); this.syncModel(r, 0, dt); return; }
     if (r.grounded && zone === 'main' && Math.abs(n.lat) < tr.hw) r.safeD = n.d;
+    else if (r.grounded && sc && Math.abs(scn.lat) < sc.half * 0.7) r.safeD = scn.mainD; // 지름길에서 떨어지면 그만큼 진행한 본선 위치로
 
     // 진행 거리: 지름길 위에서는 지름길 진행률을 본선 거리로 환산
     const curD = sc ? scn.mainD : n.d;
@@ -951,7 +961,7 @@ export default class Kart extends GameBase {
     const tr = this.track;
     // 고무줄 효과: 플레이어보다 많이 뒤처지면 살짝 빠르게, 많이 앞서면 살짝 느리게
     const gap = this.player.progress - r.progress;
-    r.rubber = r.skill * (1 + clamp(gap / 220, -0.07, 0.09) * this.diff.rubber);
+    r.rubber = r.skill * (1 + clamp(gap / 200, -0.05, 0.11) * this.diff.rubber);
     if (r.finished && !r.isPlayer) r.rubber *= 0.85;
     // 차선 바꾸기 (위험물 피하기)
     r.laneT -= dt;
@@ -995,11 +1005,13 @@ export default class Kart extends GameBase {
     const slow = need > cap * 1.15 && !(r.boostT > 0) && r.grounded;
     // 급커브에서는 드리프트 (드리프트가 더 많이 돌 수 있음)
     let drift = r.drifting, hop = false;
-    if (!r.drifting && r.grounded && need > cap * 0.85 && r.speed > 16 && r.aiDriftT <= 0 && Math.random() < r.skill * 0.15) {
+    const onSc = typeof r.zone === 'number';
+    if (!r.drifting && !onSc && r.grounded && need > cap * 0.85 && r.speed > 16 && r.aiDriftT <= 0 && Math.random() < r.skill * 0.22) {
       hop = true; drift = true; r.aiDriftT = 1.5;
       steer = Math.sign(-diff) || 1;
     }
-    if (r.drifting) { drift = curv > 0.3 || r.driftT < DRIFT_LV[0]; steer = clamp(-diff * 2.4, -1, 1); }
+    if (r.drifting && onSc) drift = false; // 좁은 지름길에서는 드리프트 안 함
+    else if (r.drifting) { drift = curv > 0.24 || r.driftT < DRIFT_LV[r.skill > 0.97 ? 1 : 0]; steer = clamp(-diff * 2.4, -1, 1); }
     r.aiDriftT -= dt;
     // 아이템
     if (r.item && r.roll <= 0) {

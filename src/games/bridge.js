@@ -24,6 +24,8 @@ const SKIES = [
   ['#14532d', '#bbf7d0', '#4ade80', '#15803d', '#052e16'],
 ];
 const rand = (a, b) => a + Math.random() * (b - a);
+/** #rrggbb 색을 밝게(+)/어둡게(-) */
+const shade = (hex, d) => '#' + [1, 3, 5].map((i) => Math.max(0, Math.min(255, parseInt(hex.slice(i, i + 2), 16) + d)).toString(16).padStart(2, '0')).join('');
 
 export default class Bridge extends GameBase {
   static meta = {
@@ -220,6 +222,15 @@ export default class Bridge extends GameBase {
       this.drawSky(ctx, this.prevSky);
       ctx.globalAlpha = this.skyFade; this.drawSky(ctx, this.skyIdx); ctx.globalAlpha = 1;
     } else this.drawSky(ctx, this.skyIdx);
+    // 구름 (아주 천천히 흐름)
+    const tt = performance.now() / 1000;
+    ctx.fillStyle = this.skyIdx === 3 ? 'rgba(148,163,184,.18)' : 'rgba(255,255,255,.7)';
+    for (let i = 0; i < 5; i++) {
+      const span = W + 220, cx0 = ((i * 157 + tt * (6 + i * 2) - cam * 0.06) % span + span) % span - 110, cy = 150 + (i * 53) % 120;
+      ctx.beginPath();
+      ctx.ellipse(cx0, cy, 38, 13, 0, 0, Math.PI * 2); ctx.ellipse(cx0 - 22, cy + 3, 22, 10, 0, 0, Math.PI * 2); ctx.ellipse(cx0 + 20, cy - 6, 24, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
     // 먼 언덕·가까운 언덕 (시차 스크롤)
     this.hills(ctx, cam * 0.15, TOP - 70, 34, 0.012, sky[2]);
     this.hills(ctx, cam * 0.4, TOP - 20, 26, 0.02, sky[3]);
@@ -228,9 +239,19 @@ export default class Bridge extends GameBase {
     for (const p of this.pillars) {
       const x = p.x - cam;
       if (x > W || x + p.w < 0) continue;
-      ctx.fillStyle = sky[4];
-      ctx.fillRect(x, TOP, p.w, H - TOP);
-      ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(x, TOP, p.w, 4);
+      // 돌기둥: 세로 그라데이션 + 벽돌 줄눈 + 풀 덮인 윗면
+      const pg = ctx.createLinearGradient(x, 0, x + p.w, 0);
+      pg.addColorStop(0, sky[4]); pg.addColorStop(0.5, shade(sky[4], 18)); pg.addColorStop(1, shade(sky[4], -10));
+      ctx.fillStyle = pg; ctx.fillRect(x, TOP, p.w, H - TOP);
+      ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let yy = TOP + 16, row = 0; yy < H; yy += 16, row++) {
+        ctx.moveTo(x, yy); ctx.lineTo(x + p.w, yy);
+        for (let bx = x + (row % 2 ? 12 : 0) + 24; bx < x + p.w; bx += 24) { ctx.moveTo(bx, yy - 16); ctx.lineTo(bx, yy); }
+      }
+      ctx.stroke();
+      ctx.fillStyle = sky[3]; ctx.fillRect(x - 2, TOP, p.w + 4, 6);
+      ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x - 2, TOP, p.w + 4, 2);
       if (!p.start) {
         ctx.fillStyle = '#ef4444'; ctx.fillRect(x + p.w / 2 - 5, TOP, 10, 5); // 퍼펙트 칸
       }

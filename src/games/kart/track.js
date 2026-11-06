@@ -221,9 +221,19 @@ export class Track {
     strip(-this.wall, -this.hw - this.curb, 0.01, 0.01, shoulderMat, 16);
 
     // 벽 + 윗부분
+    // 벽 무늬: 칸막이 패널 + 아래 어두운 띠 + 가끔 화살표 표지 (세로 = 높이, 가로 = 진행 방향)
+    const wallTex = canvasTexture(32, 128, (ctx, w, h) => {
+      ctx.fillStyle = css(th.wall); ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(w * 0.55, 0, w * 0.3, h);
+      ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(0, 0, w * 0.18, h);
+      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      for (let y = 0; y < h; y += 32) ctx.fillRect(0, y, w, 2);
+      ctx.fillStyle = css(th.wallTop); ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.moveTo(w * 0.3, 70); ctx.lineTo(w * 0.75, 80); ctx.lineTo(w * 0.3, 90); ctx.fill(); ctx.globalAlpha = 1;
+    });
     const wallMat = th.night
       ? new THREE.MeshBasicMaterial({ color: th.wall, side: THREE.DoubleSide, transparent: true, opacity: 0.55 })
-      : new THREE.MeshLambertMaterial({ color: th.wall, side: THREE.DoubleSide });
+      : new THREE.MeshLambertMaterial({ map: wallTex, side: THREE.DoubleSide });
     const topMat = new THREE.MeshBasicMaterial({ color: th.wallTop, side: THREE.DoubleSide });
     for (const off of [this.wall, -this.wall]) {
       const side = Math.sign(off);
@@ -251,7 +261,12 @@ export class Track {
       for (let i = 0; i < N; i += 6) {
         const s = S[i];
         if (!this.onBridge(s.d) || s.y < 1 || gapAt[i]) continue;
-        for (const side of [-1, 1]) pillars.push({ x: s.x + s.nx * (this.wall - 1) * side, z: s.z + s.nz * (this.wall - 1) * side, h: s.y });
+        for (const side of [-1, 1]) {
+          const px = s.x + s.nx * (this.wall - 1) * side, pz = s.z + s.nz * (this.wall - 1) * side;
+          // 아래로 다른 도로가 지나가면 그 자리에는 기둥을 세우지 않음 (도로 위에 기둥이 서서 뚫고 지나가던 문제)
+          const blocks = S.some((o) => s.y - o.y > 2 && (o.x - px) ** 2 + (o.z - pz) ** 2 < (this.wall + 1.5) ** 2);
+          if (!blocks) pillars.push({ x: px, z: pz, h: s.y });
+        }
         slabs.push({ x: s.x, y: s.y - 0.35, z: s.z, r: Math.atan2(s.tx, s.tz) });
       }
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
@@ -342,6 +357,7 @@ export class Track {
     }
 
     this.addScenery(g, quality);
+    this.addSky(g);
     return g;
   }
 
@@ -410,6 +426,41 @@ export class Track {
     }
   }
 
+  /** 하늘 장식: 낮에는 구름, 밤에는 별 (안개 영향 없이 멀리) */
+  addSky(g) {
+    const th = this.def.theme, b = this.bounds, cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    if (th.night) {
+      const pos = [];
+      for (let i = 0; i < 500; i++) {
+        const a = Math.random() * Math.PI * 2, e = 0.12 + Math.random() * 1.2;
+        pos.push(cx + Math.cos(a) * Math.cos(e) * 900, Math.sin(e) * 900, cz + Math.sin(a) * Math.cos(e) * 900);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, fog: false })));
+      return;
+    }
+    const smoke = th.scenery === 'volcano';
+    const tex = canvasTexture(128, 64, (ctx, w, h) => {
+      for (let i = 0; i < 9; i++) {
+        const x = 20 + Math.random() * (w - 40), y = 26 + Math.random() * 16, r = 12 + Math.random() * 14;
+        const gr = ctx.createRadialGradient(x, y, 0, x, y, r);
+        const c = smoke ? '60,40,36' : '255,255,255';
+        gr.addColorStop(0, `rgba(${c},.95)`); gr.addColorStop(1, `rgba(${c},0)`);
+        ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h);
+      }
+    }, false);
+    const mat = new THREE.SpriteMaterial({ map: tex, fog: false, transparent: true, depthWrite: false, opacity: smoke ? 0.7 : 0.9 });
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2 + Math.random() * 0.3, R = 500 + Math.random() * 250;
+      const sp = new THREE.Sprite(mat);
+      sp.position.set(cx + Math.cos(a) * R, 90 + Math.random() * 110, cz + Math.sin(a) * R);
+      const s = 140 + Math.random() * 120;
+      sp.scale.set(s, s * 0.45, 1);
+      g.add(sp);
+    }
+  }
+
   /** 트랙 밖 장식 (InstancedMesh 로 가볍게) */
   addScenery(g, quality) {
     const th = this.def.theme, b = this.bounds;
@@ -427,7 +478,34 @@ export class Track {
       spots.push({ x, z, s: 0.7 + Math.random() * 0.8, r: Math.random() * Math.PI * 2 });
     }
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+    // 장식이 트랙(벽 포함)·지름길과 겹치지 않는지: 실제 크기(가로 반경)로 검사
+    const clearOf = (x, z, r) => {
+      const lim = (this.wall + r + 1.5) ** 2;
+      for (const s of this.samples) if ((s.x - x) ** 2 + (s.z - z) ** 2 < lim) return false;
+      for (const sc of this.shortcuts) for (const s of sc.samples) if ((s.x - x) ** 2 + (s.z - z) ** 2 < (sc.half + r + 2) ** 2) return false;
+      return true;
+    };
+    const footprint = (geo) => {
+      geo.computeBoundingBox();
+      const bb = geo.boundingBox;
+      return Math.hypot(Math.max(-bb.min.x, bb.max.x), Math.max(-bb.min.z, bb.max.z));
+    };
+    // 먼 배경 산: 트랙에서 가장 먼 곳보다 바깥 고리에 (반경 radius 인 물체가 트랙을 덮지 않도록)
+    const ring = (n, radius, scaleMax, phase = 0) => {
+      let far = 0;
+      for (const s of this.samples) far = Math.max(far, Math.hypot(s.x - (b.minX + b.maxX) / 2, s.z - (b.minZ + b.maxZ) / 2));
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + phase, sc = 1 + Math.random() * (scaleMax - 1);
+        const R0 = far + radius * sc + 30 + Math.random() * 40;
+        out.push({ x: (b.minX + b.maxX) / 2 + Math.cos(a) * R0, z: (b.minZ + b.maxZ) / 2 + Math.sin(a) * R0, s: sc, r: a, free: true });
+      }
+      return out;
+    };
     const place = (geo, mat, list, yOff, sx = 1, sy = 1) => {
+      const fr = footprint(geo) * sx;
+      list = list.filter((p) => p.free || clearOf(p.x, p.z, fr * p.s));
+      if (!list.length) return;
       const inst = new THREE.InstancedMesh(geo, mat, list.length);
       list.forEach((p, i) => {
         q.setFromAxisAngle(up, p.r);
@@ -454,11 +532,10 @@ export class Track {
       place(new THREE.CylinderGeometry(0.5, 0.55, 4, 7), mat, half, 2);
       place(new THREE.CylinderGeometry(0.3, 0.3, 1.8, 6), mat, half.map((p) => ({ ...p, x: p.x + Math.cos(p.r) * 0.9, z: p.z + Math.sin(p.r) * 0.9 })), 2.4);
       place(new THREE.DodecahedronGeometry(2.4, 0), new THREE.MeshLambertMaterial({ color: 0xb7793f }), rocks, 1);
-      const far = [];
-      for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2; far.push({ x: (b.minX + b.maxX) / 2 + Math.cos(a) * 330, z: (b.minZ + b.maxZ) / 2 + Math.sin(a) * 330, s: 1 + Math.random(), r: a }); }
+      const far = ring(14, 40, 2);
       place(new THREE.CylinderGeometry(30, 40, 40, 6), new THREE.MeshLambertMaterial({ color: 0xc0703a }), far, 20);
     } else if (kind === 'city') {
-      const list = spots.slice(0, Math.round(spots.length * 0.7));
+      const list = spots.slice(0, Math.round(spots.length * 0.7)).filter((p) => clearOf(p.x, p.z, 10.5));
       const winTex = canvasTexture(32, 64, (ctx, w, h) => {
         ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, w, h);
         for (let y = 2; y < h; y += 6) for (let x = 2; x < w; x += 6) { ctx.fillStyle = Math.random() < 0.55 ? ['#fde68a', '#67e8f9', '#f9a8d4'][Math.floor(Math.random() * 3)] : '#1e293b'; ctx.fillRect(x, y, 3, 3); }
@@ -470,7 +547,8 @@ export class Track {
         inst.setMatrixAt(i, m4);
       });
       g.add(inst);
-      const lamps = this.samples.filter((_, i) => i % 12 === 0).map((s) => ({ x: s.x + s.nx * (this.wall + 1), z: s.z + s.nz * (this.wall + 1), s: 1, r: 0, y0: s.y }));
+      const lamps = this.samples.filter((_, i) => i % 12 === 0).map((s) => ({ x: s.x + s.nx * (this.wall + 1), z: s.z + s.nz * (this.wall + 1), s: 1, r: 0, y0: s.y, free: true }))
+        .filter((p) => !this.samples.some((s) => Math.abs(s.y - p.y0) > 2 && (s.x - p.x) ** 2 + (s.z - p.z) ** 2 < (this.wall + 1) ** 2));
       place(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfef08a }), lamps, 5);
       place(new THREE.CylinderGeometry(0.12, 0.12, 5, 5), new THREE.MeshLambertMaterial({ color: 0x64748b }), lamps, 2.5);
     } else if (kind === 'volcano') {
@@ -479,8 +557,7 @@ export class Track {
       place(new THREE.DodecahedronGeometry(2, 0), new THREE.MeshLambertMaterial({ color: 0x292524 }), half, 0.9);
       place(new THREE.CylinderGeometry(3.2, 3.2, 0.2, 10), new THREE.MeshBasicMaterial({ color: 0xf97316 }), pools.map((p) => ({ ...p, s: 0.8 + p.s })), 0.12, 1, 0.5);
       place(new THREE.CylinderGeometry(2.2, 2.2, 0.25, 10), new THREE.MeshBasicMaterial({ color: 0xfde047 }), pools.map((p) => ({ ...p, s: 0.8 + p.s })), 0.2, 1, 0.5);
-      const far = [];
-      for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2 + 0.3; far.push({ x: (b.minX + b.maxX) / 2 + Math.cos(a) * 340, z: (b.minZ + b.maxZ) / 2 + Math.sin(a) * 340, s: 1 + Math.random() * 0.8, r: a }); }
+      const far = ring(9, 55, 1.8, 0.3);
       place(new THREE.CylinderGeometry(12, 55, 60, 8), new THREE.MeshLambertMaterial({ color: 0x3f2a22 }), far, 30);
       place(new THREE.CylinderGeometry(11, 11, 2, 8), new THREE.MeshBasicMaterial({ color: 0xfb923c }), far, 60);
     } else if (kind === 'clouds') {

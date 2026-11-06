@@ -505,6 +505,13 @@ export default class Breakout extends GameBase {
       for (let x = 0; x <= W; x += 24) { c.moveTo(x + 0.5, 0); c.lineTo(x + 0.5, H); }
       for (let y = 0; y <= H; y += 24) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
       c.stroke();
+      // 은하수 빛 + 작은 별
+      for (const [x, y, r, col] of [[W * 0.2, H * 0.3, 220, '99,102,241'], [W * 0.85, H * 0.6, 200, '236,72,153']]) {
+        const g = c.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(${col},.13)`); g.addColorStop(1, `rgba(${col},0)`);
+        c.fillStyle = g; c.fillRect(0, 0, W, H);
+      }
+      for (let i = 0; i < 70; i++) { c.fillStyle = `rgba(255,255,255,${0.15 + Math.random() * 0.4})`; c.fillRect(Math.random() * W, Math.random() * H, 1.2, 1.2); }
     });
 
     const now = performance.now() / 1000;

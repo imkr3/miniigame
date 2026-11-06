@@ -189,9 +189,18 @@ export default class Snake extends GameBase {
   draw(ctx) {
     // 체크무늬 바탕 + 바위는 캐시해 두고 붙이기만 함
     this.drawCached(ctx, 'snake-bg', 0, 0, W, H, (c) => {
-      c.fillStyle = '#121520'; c.fillRect(0, 0, W, H);
-      c.fillStyle = '#161a26';
+      // 풀밭 체크무늬 + 가장자리 어둡게
+      c.fillStyle = '#14251c'; c.fillRect(0, 0, W, H);
+      c.fillStyle = '#183022';
       for (let y = 0; y < ROWS; y++) for (let x = y % 2; x < COLS; x += 2) c.fillRect(x * CELL, y * CELL, CELL, CELL);
+      for (let i = 0; i < 160; i++) { // 풀잎
+        c.strokeStyle = `rgba(134,239,172,${0.05 + Math.random() * 0.08})`; c.lineWidth = 1;
+        const x = Math.random() * W, y = Math.random() * H;
+        c.beginPath(); c.moveTo(x, y); c.lineTo(x + (Math.random() - 0.5) * 3, y - 3 - Math.random() * 3); c.stroke();
+      }
+      const vg = c.createRadialGradient(W / 2, H / 2, W * 0.3, W / 2, H / 2, W * 0.75);
+      vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.45)');
+      c.fillStyle = vg; c.fillRect(0, 0, W, H);
     });
     if (this.cfg.wrap) { ctx.strokeStyle = 'rgba(56,189,248,.35)'; ctx.setLineDash([4, 4]); ctx.strokeRect(1, 1, W - 2, H - 2); ctx.setLineDash([]); }
     if (this.rocks.length) this.drawCached(ctx, `snake-rocks${this.rocks.length}`, 0, 0, W, H, (c) => {
@@ -214,9 +223,14 @@ export default class Snake extends GameBase {
       }
     });
     if (this.food) {
-      ctx.fillStyle = '#fb923c';
-      ctx.beginPath(); ctx.arc((this.food.x + 0.5) * CELL, (this.food.y + 0.5) * CELL, (CELL / 2 - 3) * pulse, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#4ade80'; ctx.fillRect((this.food.x + 0.5) * CELL - 1, this.food.y * CELL + 2, 2, 4);
+      // 사과: 그라데이션 + 꼭지 + 잎 + 반짝임
+      const fx = (this.food.x + 0.5) * CELL, fy = (this.food.y + 0.5) * CELL + 1, fr = (CELL / 2 - 3) * pulse;
+      const ag = ctx.createRadialGradient(fx - fr * 0.4, fy - fr * 0.4, 1, fx, fy, fr);
+      ag.addColorStop(0, '#fdba74'); ag.addColorStop(1, '#ea580c');
+      ctx.fillStyle = ag; ctx.beginPath(); ctx.arc(fx, fy, fr, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#78350f'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(fx, fy - fr + 1); ctx.lineTo(fx + 1, fy - fr - 3); ctx.stroke();
+      ctx.fillStyle = '#4ade80'; ctx.beginPath(); ctx.ellipse(fx + 4, fy - fr - 2, 3.5, 1.8, -0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.beginPath(); ctx.arc(fx - fr * 0.35, fy - fr * 0.35, 1.8, 0, Math.PI * 2); ctx.fill();
     }
     if (this.bonus && !(this.bonus.t < 2 && Math.floor(this.bonus.t * 8) % 2 === 0)) this.drawStar(ctx, this.bonus, '#facc15', pulse);
     if (this.item && !(this.item.t < 2 && Math.floor(this.item.t * 8) % 2 === 0)) {
@@ -254,16 +268,40 @@ export default class Snake extends GameBase {
       ctx.lineWidth = CELL - 4 - (i / pts.length) * 4;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
+    // 등 무늬: 마디마다 밝은 점 + 몸통 위 하이라이트
+    for (let i = 2; i < pts.length; i += 2) {
+      const a = pts[i];
+      if (a.jump) continue;
+      ctx.fillStyle = slow ? 'rgba(224,242,254,.35)' : 'rgba(187,247,208,.32)';
+      ctx.beginPath(); ctx.arc(a.x, a.y, Math.max(2, (CELL - 8 - (i / pts.length) * 4) * 0.22), 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = pts.length - 1; i > 0; i--) {
+      const a = pts[i], b = pts[i - 1];
+      if (b.jump || Math.hypot(a.x - b.x, a.y - b.y) > CELL * 1.5) continue;
+      ctx.moveTo(a.x - 2, a.y - 3); ctx.lineTo(b.x - 2, b.y - 3);
+    }
+    ctx.stroke();
     // 머리
     const h = pts[0], d = this.dir;
+    // 혀 (가끔 날름)
+    if (Math.floor(performance.now() / 260) % 5 === 0) {
+      const tx = h.x + d.x * 13, ty = h.y + d.y * 13;
+      ctx.strokeStyle = '#f43f5e'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(h.x + d.x * 8, h.y + d.y * 8); ctx.lineTo(tx, ty);
+      ctx.lineTo(tx + d.x * 3 + d.y * 2.5, ty + d.y * 3 + d.x * 2.5); ctx.moveTo(tx, ty); ctx.lineTo(tx + d.x * 3 - d.y * 2.5, ty + d.y * 3 - d.x * 2.5);
+      ctx.stroke();
+    }
     ctx.fillStyle = slow ? '#7dd3fc' : '#86efac';
     ctx.beginPath(); ctx.arc(h.x, h.y, CELL / 2 - 1, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#0f172a';
-    const ex = h.x + d.x * 4, ey = h.y + d.y * 4;
-    ctx.beginPath();
-    ctx.arc(ex + d.y * 4, ey + d.x * 4, 2.2, 0, Math.PI * 2);
-    ctx.arc(ex - d.y * 4, ey - d.x * 4, 2.2, 0, Math.PI * 2);
-    ctx.fill();
+    const ex = h.x + d.x * 3, ey = h.y + d.y * 3;
+    for (const sd of [1, -1]) {
+      const px = ex + d.y * 4.2 * sd, py = ey + d.x * 4.2 * sd;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(px, py, 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#0f172a'; ctx.beginPath(); ctx.arc(px + d.x * 1.2, py + d.y * 1.2, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(px + d.x * 1.2 - 0.7, py + d.y * 1.2 - 0.7, 0.7, 0, Math.PI * 2); ctx.fill();
+    }
     if (this.combo > 1) {
       ctx.fillStyle = '#fde68a'; ctx.font = '800 11px system-ui, sans-serif'; ctx.textAlign = 'center';
       ctx.fillText(`×${this.combo}`, h.x, h.y - 13); ctx.textAlign = 'start';

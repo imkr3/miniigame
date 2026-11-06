@@ -355,14 +355,30 @@ export default class Maze extends GameBase {
     // 벽: 이웃한 벽끼리 이어서 그림 (맵마다 한 번만 그려서 캐시)
     this.drawCached(ctx, `maze-walls-${this.mapIdx}`, 0, 0, this.width, this.height, (c) => {
       const wall = (x, y) => this.map[y]?.[x] === '#';
-      const I = 5;
-      c.fillStyle = '#1d3557';
-      this.map.forEach((row, y) => [...row].forEach((ch, x) => {
-        if (ch !== '#') return;
-        roundRect(c, x * CELL + I, y * CELL + I, CELL - I * 2, CELL - I * 2, 5);
-        if (wall(x + 1, y)) c.fillRect(x * CELL + CELL / 2, y * CELL + I, CELL, CELL - I * 2);
-        if (wall(x, y + 1)) c.fillRect(x * CELL + I, y * CELL + CELL / 2, CELL - I * 2, CELL);
-      }));
+      const W2 = this.width, H2 = this.height;
+      // 바닥: 은은한 남색 빛 + 격자
+      const bg = c.createRadialGradient(W2 / 2, H2 / 2, 20, W2 / 2, H2 / 2, W2 * 0.7);
+      bg.addColorStop(0, '#111a33'); bg.addColorStop(1, '#070a14');
+      c.fillStyle = bg; c.fillRect(0, 0, W2, H2);
+      c.fillStyle = 'rgba(148,163,184,.04)';
+      for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++) if ((x + y) % 2 === 0) c.fillRect(x * CELL, y * CELL, CELL, CELL);
+      // 벽 모양을 안쪽 여백(I)만 달리해 여러 번 그려서: 빛나는 테두리 + 어두운 속
+      const shape = (I, color, r) => {
+        const t = document.createElement('canvas'); t.width = W2; t.height = H2;
+        const tc = t.getContext('2d'); tc.fillStyle = color;
+        this.map.forEach((row, y) => [...row].forEach((ch, x) => {
+          if (ch !== '#') return;
+          roundRect(tc, x * CELL + I, y * CELL + I, CELL - I * 2, CELL - I * 2, r);
+          if (wall(x + 1, y)) tc.fillRect(x * CELL + CELL / 2, y * CELL + I, CELL, CELL - I * 2);
+          if (wall(x, y + 1)) tc.fillRect(x * CELL + I, y * CELL + CELL / 2, CELL - I * 2, CELL);
+        }));
+        return t;
+      };
+      c.save(); c.shadowColor = '#3b82f6'; c.shadowBlur = 12;
+      c.drawImage(shape(4, '#60a5fa', 7), 0, 0);
+      c.restore();
+      c.drawImage(shape(6.5, '#13213f', 5), 0, 0);
+      c.globalAlpha = 0.5; c.drawImage(shape(9, '#1d3557', 3), 0, 0); c.globalAlpha = 1;
       // 터널 입구 표시
       c.fillStyle = 'rgba(56,189,248,.18)';
       this.map.forEach((row, y) => { if (row[0] !== '#') { c.fillRect(0, y * CELL + 3, 6, CELL - 6); c.fillRect(COLS * CELL - 6, y * CELL + 3, 6, CELL - 6); } });
@@ -382,7 +398,9 @@ export default class Maze extends GameBase {
     ctx.fill();
     ctx.fillStyle = '#fde68a';
     const pr = 6 + Math.sin(performance.now() / 160) * 1.2;
+    ctx.save(); ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 12;
     for (let i = 0; i < powers.length; i += 2) { ctx.beginPath(); ctx.arc((powers[i] + 0.5) * CELL, (powers[i + 1] + 0.5) * CELL, pr, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
 
     if (this.ice && !(this.ice.t < 2 && Math.floor(this.ice.t * 8) % 2)) {
       ctx.font = `${Math.round(CELL * 0.7)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
