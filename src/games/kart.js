@@ -30,7 +30,7 @@ const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')
 const hex = (n) => '#' + n.toString(16).padStart(6, '0');
 const MODES = [
   { id: 'race', name: '🏁 레이스', desc: '8명이 겨루는 한 판' },
-  { id: 'gp', name: '🏆 그랑프리', desc: '5개 트랙 연속 · 순위 점수 합계로 우승' },
+  { id: 'gp', name: '🏆 그랑프리', desc: `${TRACKS.length}개 트랙 연속 · 순위 점수 합계로 우승` },
   { id: 'tt', name: '⏱ 타임 어택', desc: '혼자 달리며 기록 도전 · 내 최고 기록 고스트' },
 ];
 const SEL_Y = 50, SEL_STEP = 58, SEL_H = 52; // 선택 화면 항목 배치
@@ -1306,7 +1306,7 @@ export default class Kart extends GameBase {
       { label: '모드', value: md.name, sub: md.desc },
       { label: '캐릭터', value: `${ch.emoji} ${ch.name} (${ch.animal})` },
       { label: '카트', value: kt.name, sub: kt.desc },
-      gp ? { label: '트랙', value: TRACKS.map((t) => t.emoji).join(' '), sub: '5개 트랙을 순서대로', fixed: true }
+      gp ? { label: '트랙', value: TRACKS.map((t) => t.emoji).join(' '), sub: `${TRACKS.length}개 트랙을 순서대로`, fixed: true }
         : { label: '트랙', value: `${tr.emoji} ${tr.name}`, sub: trackSub },
     ];
     rows.forEach((row, i) => {

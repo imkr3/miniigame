@@ -5,6 +5,7 @@ export const GAMES = [
   { id: 'snake',    title: '스네이크',  emoji: '🐍', color: '#16a34a', desc: '먹고, 길어지고, 피하기', load: () => import('./games/snake.js') },
   { id: 'breakout', title: '벽돌깨기',  emoji: '🧨', color: '#dc2626', desc: '공을 튕겨 벽돌 부수기', load: () => import('./games/breakout.js') },
   { id: 'kart',     title: '카트 레이스', emoji: '🏎️', color: '#e11d48', desc: '드리프트와 아이템의 3D 레이스', load: () => import('./games/kart.js') },
+  { id: 'bridge',   title: '다리 잇기', emoji: '🌉', color: '#f59e0b', desc: '눌러서 막대 늘리고 다리 건너기', load: () => import('./games/bridge.js') },
   { id: 'runner',   title: '점프 러너', emoji: '⚔️', color: '#65a30d', desc: '무기·증강으로 싸우는 플랫포머', load: () => import('./games/runner.js') },
 ];
 

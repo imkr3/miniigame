@@ -14,7 +14,7 @@ export default class Snake extends GameBase {
     id: 'snake',
     title: '스네이크',
     description: '먹이를 먹고 몸을 늘리세요. 연속으로 빨리 먹으면 콤보! ⭐ 보너스 · 🧊 잠깐 느려짐 · ✂️ 꼬리 자르기. ⚙에서 벽 통과·장애물·포털 모드',
-    controls: '방향키 / WASD',
+    controls: '방향키 / WASD (가는 방향 키를 누르고 있으면 빨라짐)',
     touchControls: '화면을 밀어서 방향 전환 (또는 아래 방향 버튼)',
   };
   static mouseClick = null;
@@ -107,7 +107,10 @@ export default class Snake extends GameBase {
     if (this.item && (this.item.t -= dt) <= 0) this.item = null;
     if (this.slowT > 0 && (this.slowT -= dt) <= 0) this.updateInfo();
     if (this.combo && (this.comboT -= dt) <= 0) { this.combo = 0; this.updateInfo(); }
-    const step = this.interval * (this.slowT > 0 ? 1.45 : 1);
+    // 지금 가는 방향 키를 누르고 있으면 빠르게 (돌진)
+    const name = Object.keys(DIRS).find((k) => DIRS[k] === this.dir);
+    this.rushing = !this.queue.length && name && this.isDown(name);
+    const step = this.interval * (this.slowT > 0 ? 1.45 : 1) * (this.rushing ? 0.55 : 1);
     this.timer += dt;
     while (this.timer >= step && this.state === 'playing') {
       this.timer -= step;

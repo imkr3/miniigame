@@ -473,6 +473,16 @@ export class Track {
       const lamps = this.samples.filter((_, i) => i % 12 === 0).map((s) => ({ x: s.x + s.nx * (this.wall + 1), z: s.z + s.nz * (this.wall + 1), s: 1, r: 0, y0: s.y }));
       place(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfef08a }), lamps, 5);
       place(new THREE.CylinderGeometry(0.12, 0.12, 5, 5), new THREE.MeshLambertMaterial({ color: 0x64748b }), lamps, 2.5);
+    } else if (kind === 'volcano') {
+      // 검은 바위 + 빛나는 용암 웅덩이 + 멀리 연기 나는 화산들
+      const half = spots.slice(0, Math.round(spots.length * 0.6)), pools = spots.slice(Math.round(spots.length * 0.6));
+      place(new THREE.DodecahedronGeometry(2, 0), new THREE.MeshLambertMaterial({ color: 0x292524 }), half, 0.9);
+      place(new THREE.CylinderGeometry(3.2, 3.2, 0.2, 10), new THREE.MeshBasicMaterial({ color: 0xf97316 }), pools.map((p) => ({ ...p, s: 0.8 + p.s })), 0.12, 1, 0.5);
+      place(new THREE.CylinderGeometry(2.2, 2.2, 0.25, 10), new THREE.MeshBasicMaterial({ color: 0xfde047 }), pools.map((p) => ({ ...p, s: 0.8 + p.s })), 0.2, 1, 0.5);
+      const far = [];
+      for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2 + 0.3; far.push({ x: (b.minX + b.maxX) / 2 + Math.cos(a) * 340, z: (b.minZ + b.maxZ) / 2 + Math.sin(a) * 340, s: 1 + Math.random() * 0.8, r: a }); }
+      place(new THREE.CylinderGeometry(12, 55, 60, 8), new THREE.MeshLambertMaterial({ color: 0x3f2a22 }), far, 30);
+      place(new THREE.CylinderGeometry(11, 11, 2, 8), new THREE.MeshBasicMaterial({ color: 0xfb923c }), far, 60);
     } else if (kind === 'clouds') {
       // 구름 덩어리 + 떠 있는 작은 섬
       const cl = spots.map((p) => ({ ...p, s: 2 + Math.random() * 3, y0: 6 + Math.random() * 30 }));

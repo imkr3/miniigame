@@ -81,6 +81,14 @@ export const TRACKS = [
     shortcuts: [{ from: 0.646, to: 0.906, side: 1, width: 9 }],
     theme: { sky: 0x60a5fa, fog: 0xbfdbfe, ground: 0xf8fafc, dirt: 0xe9d5ff, wall: 0xfbcfe8, wallTop: 0xa855f7, curbA: 0xf472b6, curbB: 0xffffff, scenery: 'clouds', sun: 0xffffff },
   },
+  {
+    id: 'volcano', name: '용암 화산', desc: '화산을 감아 오른 뒤 분화구 위를 활공, 용암 협곡 점프', emoji: '🌋',
+    scale: 1.75, width: 18,
+    points: [[0, 0, 0], [80, 0, 0], [130, 20, 3], [150, 65, 7], [125, 105, 11], [75, 115, 14], [35, 92, 16], [-5, 96, 16], [-60, 122, 10], [-95, 150, 6], [-135, 132, 3], [-155, 85, 1], [-130, 40, 0], [-90, 15, 0], [-45, 0, 0]],
+    boosts: [0.06, 0.66], boxes: [0.17, 0.48, 0.8], ramps: [11], gliders: [[7, 8]],
+    shortcuts: [{ from: 0.13, to: 0.3, side: 1 }],
+    theme: { sky: 0x7c2d12, fog: 0x9a3412, ground: 0x3f3a36, dirt: 0x57534e, wall: 0x44403c, wallTop: 0xf97316, curbA: 0xef4444, curbB: 0x1c1917, scenery: 'volcano', sun: 0xffc9a3 },
+  },
 ];
 
 // 아이템 (원작 게임과 다른 오리지널 구성)

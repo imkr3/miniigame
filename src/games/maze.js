@@ -129,6 +129,8 @@ export default class Maze extends GameBase {
     this.homeDist = this.homeDistances();
     this.eatenCount = 0;
     this.bonus = null;
+    this.ice = null;
+    this.iceT = 0;
     this.dots = new Map(); // "x,y" -> 'dot' | 'power'
     this.map.forEach((row, y) => [...row].forEach((ch, x) => {
       if (ch === '.') this.dots.set(`${x},${y}`, 'dot');
@@ -234,6 +236,14 @@ export default class Maze extends GameBase {
       // 보너스 별: 플레이어 시작 위치에 잠시 나타남
       this.map.forEach((row, y) => [...row].forEach((c, x) => { if (c === 'P') this.bonus = { x, y, t: 9 }; }));
     }
+    if (this.eatenCount === 75) {
+      // 얼음 결정: 플레이어와 먼 통로 칸에 나타남 → 먹으면 박쥐들이 4초 동안 얼어붙음
+      const cells = [];
+      this.map.forEach((row, y) => [...row].forEach((c, x) => {
+        if (c !== '#' && c !== 'C' && x > 0 && x < COLS - 1 && Math.abs(x - p.x) + Math.abs(y - p.y) > 8) cells.push({ x, y });
+      }));
+      if (cells.length) this.ice = { ...cells[Math.floor(Math.random() * cells.length)], t: 10 };
+    }
     if (kind === 'dot') { this.addScore(10); this.sound('dot'); }
     else {
       this.addScore(50);
@@ -283,8 +293,21 @@ export default class Maze extends GameBase {
       } else if (this.bonus.t <= 0) this.bonus = null;
     }
 
+    if (this.ice) {
+      this.ice.t -= dt;
+      const pl = this.player;
+      if (pl.x === this.ice.x && pl.y === this.ice.y) {
+        this.iceT = 4;
+        this.ice = null;
+        this.floatText((pl.x + 0.5) * CELL, pl.y * CELL, '❄ 얼음!', '#bae6fd', 18);
+        this.burst((pl.x + 0.5) * CELL, (pl.y + 0.5) * CELL, { color: '#bae6fd', count: 18, speed: 140 });
+        this.sound('power');
+      } else if (this.ice.t <= 0) this.ice = null;
+    }
+    if (this.iceT > 0) this.iceT = Math.max(0, this.iceT - dt);
     for (const c of this.chasers) {
       if (c.wait > 0) { c.wait -= dt; continue; }
+      if (this.iceT > 0 && !c.eyes) continue; // 얼어붙음
       const tunnel = this.map[c.y][0] !== '#' && (c.x <= 1 || c.x >= COLS - 2);
       const k = c.eyes ? 2.6 : (this.fright > 0 && !c.fresh ? 0.55 : 1) * (tunnel ? 0.6 : 1);
       this.move(c, dt * k, (e) => this.chooseChaserDir(e), (e) => {
@@ -361,6 +384,11 @@ export default class Maze extends GameBase {
     const pr = 6 + Math.sin(performance.now() / 160) * 1.2;
     for (let i = 0; i < powers.length; i += 2) { ctx.beginPath(); ctx.arc((powers[i] + 0.5) * CELL, (powers[i + 1] + 0.5) * CELL, pr, 0, Math.PI * 2); ctx.fill(); }
 
+    if (this.ice && !(this.ice.t < 2 && Math.floor(this.ice.t * 8) % 2)) {
+      ctx.font = `${Math.round(CELL * 0.7)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('❄️', (this.ice.x + 0.5) * CELL, (this.ice.y + 0.5) * CELL + 1);
+      ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    }
     // 보너스 별
     if (this.bonus && !(this.bonus.t < 2 && Math.floor(this.bonus.t * 8) % 2)) {
       const bx = (this.bonus.x + 0.5) * CELL, by = (this.bonus.y + 0.5) * CELL;
@@ -448,6 +476,10 @@ export default class Maze extends GameBase {
     }
     const scared = this.fright > 0 && !c.fresh;
     const R = CELL * 0.26;
+    if (this.iceT > 0) { // 얼음 덩어리 안에 갇힘
+      ctx.fillStyle = `rgba(186,230,253,${this.iceT < 1 && Math.floor(this.iceT * 8) % 2 ? 0.2 : 0.45})`;
+      roundRect(ctx, x - CELL * 0.45, y - CELL * 0.45, CELL * 0.9, CELL * 0.9, 5);
+    }
     const body = scared ? (blink ? '#e2e8f0' : '#3b82f6') : c.color;
     const bob = Math.sin(t * 5) * 1.5;      // 둥실둥실
     const flap = scared ? 0.25 + Math.sin(t * 9) * 0.1 : Math.sin(t * 16) * 0.55; // 겁먹으면 날개 처짐

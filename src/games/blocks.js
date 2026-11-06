@@ -70,7 +70,7 @@ const LOCK_RESETS = 15;
 
 const rotateCW = (m) => m[0].map((_, i) => m.map((row) => row[i]).reverse());
 const rotateCCW = (m) => m[0].map((_, i) => m.map((row) => row[row.length - 1 - i]));
-const SPRINT_LINES = 40, ULTRA_TIME = 120;
+const SPRINT_LINES = 40, ULTRA_TIME = 120, DIG_ROWS = 10;
 const fmtCs = (cs) => `${Math.floor(cs / 6000)}:${String(Math.floor(cs / 100) % 60).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`;
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -98,7 +98,7 @@ export default class Blocks extends GameBase {
   };
   static settings = [
     { id: 'mode', label: '모드', type: 'select', default: 'marathon',
-      options: [['marathon', '마라톤 (끝까지)'], ['sprint', '스프린트 (40줄 최단 시간)'], ['ultra', '울트라 (2분 최고 점수)']], tip: '모드마다 기록이 따로 저장돼요. 새 게임부터 적용' },
+      options: [['marathon', '마라톤 (끝까지)'], ['sprint', '스프린트 (40줄 최단 시간)'], ['ultra', '울트라 (2분 최고 점수)'], ['dig', '땅파기 (쓰레기 10줄 최단 시간)']], tip: '모드마다 기록이 따로 저장돼요. 새 게임부터 적용' },
     { id: 'startLevel', label: '시작 레벨', type: 'range', min: 1, max: 20, default: 1, unit: '',
       tip: '높을수록 처음부터 빠르게 떨어짐 (점수도 레벨만큼 곱해짐). 새 게임부터 적용' },
     { id: 'linesPerLevel', label: '레벨업 줄 수', type: 'range', min: 4, max: 15, default: 8, unit: '줄', tip: '이만큼 줄을 지울 때마다 레벨 +1' },
@@ -226,7 +226,7 @@ export default class Blocks extends GameBase {
 
   /** 꼭대기까지 쌓임 */
   topOut() {
-    if (!this.multi) { if (this.mode === 'sprint') this.recordValue = 0; return this.gameOver('게임 오버', this.statsText()); }
+    if (!this.multi) { if (this.mode === 'sprint' || this.mode === 'dig') this.recordValue = 0; return this.gameOver('게임 오버', this.statsText()); }
     const m = this.multi;
     if (m.dead) return;
     m.dead = true;
@@ -290,7 +290,18 @@ export default class Blocks extends GameBase {
     this.mode = this.multi ? 'battle' : this.cfg.mode;
     if (this.mode === 'sprint') this.setRecord('blocks-sprint', { lower: true, fmt: fmtCs });
     else if (this.mode === 'ultra') this.setRecord('blocks-ultra');
+    else if (this.mode === 'dig') this.setRecord('blocks-dig', { lower: true, fmt: fmtCs });
     else this.setRecord('blocks');
+    this.digDone = false;
+    if (this.mode === 'dig') { // 바닥에 구멍 하나씩 뚫린 쓰레기 줄 (구멍 위치가 계속 바뀜)
+      let hole = -1;
+      for (let i = 0; i < DIG_ROWS; i++) {
+        let h; do h = Math.floor(Math.random() * COLS); while (h === hole);
+        hole = h;
+        const row = Array(COLS).fill(GARBAGE); row[hole] = -1;
+        this.board[ROWS - 1 - i] = row;
+      }
+    }
     this.startLevel = this.multi ? (this.multi.settings.startLevel ?? 3) : this.cfg.startLevel;
     this.level = this.startLevel;
     this.gravityT = 0;
@@ -499,6 +510,11 @@ export default class Blocks extends GameBase {
       this.gameOver(`${SPRINT_LINES}줄 완료!`, `블록 ${this.stats.pieces}개 · 초당 ${(this.stats.pieces / this.time).toFixed(2)}개 · 스핀 ${this.stats.spins}회`);
       return true;
     }
+    if (this.digDone) {
+      this.recordValue = Math.round(this.time * 100);
+      this.gameOver('땅파기 완료!', `블록 ${this.stats.pieces}개 · 초당 ${(this.stats.pieces / this.time).toFixed(2)}개 · 스핀 ${this.stats.spins}회`);
+      return true;
+    }
     if (this.mode === 'ultra' && this.time >= ULTRA_TIME) {
       this.gameOver('타임 업!', `${this.lines}줄 · 블록 ${this.stats.pieces}개 · 스핀 ${this.stats.spins}회 · 최대 콤보 ${Math.max(0, this.stats.maxCombo)}`);
       return true;
@@ -511,6 +527,7 @@ export default class Blocks extends GameBase {
     this.board = this.board.filter((_, y) => !rows.includes(y));
     while (this.board.length < ROWS) this.board.unshift(Array(COLS).fill(-1));
     this.clearing = null;
+    if (this.mode === 'dig' && !this.board.some((r) => r.includes(GARBAGE))) { this.digDone = true; return; }
     this.spawn();
   }
 
@@ -521,6 +538,7 @@ export default class Blocks extends GameBase {
 
   updateInfo() {
     if (this.mode === 'sprint') this.setInfo(`남은 ${Math.max(0, SPRINT_LINES - this.lines)}줄 · ${fmtCs(Math.round(this.time * 100))}`);
+    else if (this.mode === 'dig') this.setInfo(`남은 쓰레기 ${this.board.filter((r) => r.includes(GARBAGE)).length}줄 · ${fmtCs(Math.round(this.time * 100))}`);
     else if (this.mode === 'ultra') this.setInfo(`남은 시간 ${fmtTime(Math.max(0, ULTRA_TIME - this.time))} · 레벨 ${this.level}`);
     else this.setInfo(`레벨 ${this.level} · ${this.lines}줄`);
   }
@@ -575,7 +593,7 @@ export default class Blocks extends GameBase {
       }
       if (this.multi.dead) return;
     }
-    if (this.mode === 'sprint' || this.mode === 'ultra') {
+    if (this.mode === 'sprint' || this.mode === 'ultra' || this.mode === 'dig') {
       this.infoT = (this.infoT ?? 0) + dt;
       if (this.infoT > 0.05) { this.infoT = 0; this.updateInfo(); }
       if (this.checkModeEnd()) return;

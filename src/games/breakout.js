@@ -35,6 +35,7 @@ const POWERS = {
   laser:  { label: 'L', color: '#fb923c', text: '레이저! (발사 버튼)', weight: 2.5, time: 9 },
   fire:   { label: 'F', color: '#ef4444', text: '불공! 벽돌 관통', weight: 2, time: 7 },
   catch:  { label: 'C', color: '#a78bfa', text: '캐치! 공을 잡아요', weight: 2, time: 12 },
+  barrier:{ label: 'B', color: '#38bdf8', text: '바닥 방어막! (3번)', weight: 1.5 },
   life:   { label: '♥', color: '#f87171', text: '목숨 +1', weight: 1 },
   shrink: { label: '−', color: '#64748b', text: '패들 축소…', weight: 1.5, time: 8, bad: true },
 };
@@ -86,6 +87,7 @@ export default class Breakout extends GameBase {
 
   init() {
     this.lives = 3;
+    this.barrier = 0;
     this.level = this.cfg.startLevel;
     this.paddle = { x: W / 2 - PADDLE_W / 2, w: PADDLE_W, stun: 0 };
     this.dragX = null;
@@ -373,6 +375,7 @@ export default class Breakout extends GameBase {
     if (type === 'shrink') this.effects.wide = 0;
     if (type === 'slow') for (const b of this.balls) this.rescale(b);
     if (type === 'life') this.lives = Math.min(6, this.lives + 1);
+    if (type === 'barrier') this.barrier = 3;
     if (type === 'multi') {
       const extra = [];
       for (const b of this.balls.filter((x) => !x.stuck).slice(0, 4)) {
@@ -430,6 +433,14 @@ export default class Breakout extends GameBase {
       this.setVelocity(b, -Math.PI / 2 + hit * 1.05);
       b.y = PADDLE_Y - BALL_R;
       this.sound('bounce');
+    }
+    // 바닥 방어막: 떨어지는 공을 튕겨 올림 (횟수 제한)
+    if (this.barrier > 0 && b.vy > 0 && b.y + BALL_R >= H - 6) {
+      b.y = H - 6 - BALL_R; b.vy = -Math.abs(b.vy);
+      this.barrier--;
+      this.burst(b.x, H - 6, { color: '#38bdf8', count: 10, speed: 120, life: 0.4 });
+      this.sound('bounce');
+      this.updateInfo();
     }
     if (b.y > H + BALL_R * 2) b.lost = true;
   }
@@ -540,6 +551,11 @@ export default class Breakout extends GameBase {
     ctx.fillStyle = '#fdba74';
     for (const l of this.lasers ?? []) ctx.fillRect(l.x - 1.5, l.y - 10, 3, 12);
 
+    if (this.barrier > 0) {
+      ctx.fillStyle = `rgba(56,189,248,${0.55 + Math.sin(now / 150) * 0.2})`;
+      ctx.fillRect(0, H - 6, W, 4);
+      ctx.fillStyle = '#e0f2fe'; ctx.font = '700 10px system-ui'; ctx.textAlign = 'right'; ctx.fillText(`🛡 ${this.barrier}`, W - 6, H - 10); ctx.textAlign = 'start';
+    }
     this.drawPaddle(ctx, now);
     this.drawBalls(ctx);
     this.drawOverlayText(ctx);

@@ -41,6 +41,9 @@ const AUGMENTS = [
   { id: 'wave', icon: '🌙', name: '검기', desc: '근접 공격할 때 앞으로 검기가 날아감', max: 1, cond: (g) => has(g, 'sword') || has(g, 'hammer'), apply: (g) => { g.S.wave = true; } },
   { id: 'pierce', icon: '🔩', name: '관통탄', desc: '블래스터 탄이 적을 관통', max: 1, cond: (g) => has(g, 'blaster'), apply: (g) => { g.S.pierce = true; } },
   { id: 'spread', icon: '🔱', name: '삼연발', desc: '블래스터가 3갈래로 발사', max: 1, cond: (g) => has(g, 'blaster'), apply: (g) => { g.S.spread = true; } },
+  { id: 'revive', icon: '🔥', name: '불사조 깃털', desc: '쓰러지면 한 번 체력 절반으로 되살아남', max: 1, apply: (g) => { g.S.revive = 1; } },
+  { id: 'piggy', icon: '🐷', name: '황금 저금통', desc: '코인 20개마다 체력 1 회복', max: 1, apply: (g) => { g.S.piggy = true; } },
+  { id: 'fury', icon: '😡', name: '벼랑 끝 분노', desc: '체력이 2 이하일 때 공격 피해 2배', max: 1, apply: (g) => { g.S.fury = true; } },
   { id: 'w_blaster', icon: '🔫', name: '무기: 블래스터', desc: '빠른 원거리 무기 획득 (무기 교체로 전환)', max: 1, weight: 2, cond: (g) => !has(g, 'blaster'), apply: (g) => { g.weapons.push('blaster'); g.weapon = 'blaster'; } },
   { id: 'w_hammer', icon: '🔨', name: '무기: 망치', desc: '느리지만 넓고 강한 공격 (무기 교체로 전환)', max: 1, weight: 2, cond: (g) => !has(g, 'hammer'), apply: (g) => { g.weapons.push('hammer'); g.weapon = 'hammer'; } },
 ];
@@ -98,6 +101,7 @@ export default class Runner extends GameBase {
     this.S = {
       dmgMul: 1, atkSpd: 1, moveMul: 1, maxJumps: 1, dashCdMul: 1, dashHit: false, crit: 0, vamp: 0,
       shieldMax: 0, thorns: false, magnet: false, coinMul: 1, stomp: 1, wave: false, pierce: false, spread: false,
+      revive: 0, piggy: false, fury: false,
     };
     this.p = {
       x: 0, y: 0, w: 16, h: 24, vx: 0, vy: 0, face: 1, onGround: false, coyote: 0, jumpBuf: 0, airJumps: 0,
@@ -310,7 +314,7 @@ export default class Runner extends GameBase {
       }
       return;
     }
-    let d = dmg * (opts.env ? 1 : this.S.dmgMul);
+    let d = dmg * (opts.env ? 1 : this.S.dmgMul * (this.S.fury && this.p.hp <= 2 ? 2 : 1));
     const crit = !opts.env && Math.random() < this.S.crit;
     if (crit) d *= 2;
     d = Math.round(d * 10) / 10;
@@ -374,6 +378,15 @@ export default class Runner extends GameBase {
       for (const e of this.enemies) {
         if (!e.dead && Math.hypot(e.x + e.w / 2 - p.x, e.y + e.h / 2 - p.y) < 90) this.hitEnemy(e, 3, Math.sign(e.x - p.x), 200);
       }
+    }
+    if (p.hp <= 0 && this.S.revive > 0) { // 불사조 깃털: 한 번 부활
+      this.S.revive = 0;
+      p.hp = Math.ceil(p.maxHp / 2);
+      p.inv = 2.2;
+      this.burst(p.x + p.w / 2, p.y + p.h / 2, { color: '#fb923c', count: 40, speed: 220, life: 0.8 });
+      this.floatText(p.x + p.w / 2, p.y - 16, '🔥 부활!', '#fdba74', 20);
+      this.sound('levelup');
+      return;
     }
     if (p.hp <= 0) {
       p.hp = 0;
@@ -707,6 +720,7 @@ export default class Runner extends GameBase {
         this.coinCount++;
         this.addScore(Math.round(5 * this.S.coinMul));
         this.sound('dot');
+        if (this.S.piggy && this.coinCount % 20 === 0 && this.p.hp < this.p.maxHp) { this.p.hp++; this.floatText(this.p.x + 8, this.p.y - 10, '🐷 +1', '#fda4af', 14); }
         this.updateInfo();
       }
     }
