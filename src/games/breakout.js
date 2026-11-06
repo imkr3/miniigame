@@ -115,9 +115,12 @@ export default class Breakout extends GameBase {
       b.points = (rows.length - r) * 10 + (b.kind === 'tough' ? 10 : 0);
       this.bricks.push(b);
     }));
+    // 보스는 번갈아 등장: 5·15·25 레벨 = 거대 벽돌, 10·20·30 레벨 = UFO 함장
+    const ufo = bossLevel && (this.level / 5) % 2 === 0;
     this.boss = bossLevel ? {
-      x: W / 2 - 60, y: TOP - 6, w: 120, h: 40, hp: 20 + this.level * 3, maxHp: 20 + this.level * 3,
-      dir: 1, speed: 70 + this.level * 3, bombT: 2, flash: 0,
+      type: ufo ? 'ufo' : 'brick', name: ufo ? 'UFO 함장' : '거대 벽돌',
+      x: W / 2 - (ufo ? 55 : 60), y: TOP - 6, w: ufo ? 110 : 120, h: ufo ? 36 : 40, hp: 20 + this.level * 3, maxHp: 20 + this.level * 3,
+      dir: 1, speed: 70 + this.level * 3, bombT: 2, flash: 0, t: 0, beamT: 2.5, beams: [],
     } : null;
     // 7레벨부터: 빈칸이 있는 줄 중 1~2줄이 좌우로 움직임
     this.movers = [];
@@ -127,7 +130,7 @@ export default class Breakout extends GameBase {
         this.movers.push({ row: r, vx: (Math.random() < 0.5 ? -1 : 1) * (40 + this.level * 2) });
       }
     }
-    this.levelName = bossLevel ? '보스: 거대 벽돌' : layout.name;
+    this.levelName = bossLevel ? `보스: ${this.boss.name}` : layout.name;
     this.banner = { text: `레벨 ${this.level}`, sub: this.levelName, t: 1.8 };
     this.clearT = 0;
     this.resetBall();
@@ -306,6 +309,7 @@ export default class Breakout extends GameBase {
     if (!bs) return;
     bs.flash = Math.max(0, bs.flash - dt);
     const sp = bs.hp < bs.maxHp / 2 ? 1.4 : 1;
+    if (bs.type === 'ufo') return this.updateUfo(bs, dt, sp);
     bs.x += bs.dir * bs.speed * sp * dt;
     if (bs.x < GAP) { bs.x = GAP; bs.dir = 1; }
     if (bs.x + bs.w > W - GAP) { bs.x = W - GAP - bs.w; bs.dir = -1; }
@@ -328,6 +332,34 @@ export default class Breakout extends GameBase {
       if (bm.y > H + 10) bm.dead = true;
     }
     this.bombs = this.bombs.filter((b) => !b.dead);
+  }
+
+  /** UFO 함장: 좌우로 흔들흔들 날며, 패들 위치를 조준해 경고선 → 광선 발사 (맞으면 패들 멈춤) */
+  updateUfo(bs, dt, sp) {
+    bs.t += dt * sp;
+    const range = (W - GAP * 2 - bs.w) / 2;
+    bs.x = GAP + range + Math.sin(bs.t * 0.9) * range;
+    bs.y = TOP - 6 + Math.sin(bs.t * 2.2) * 6;
+    bs.beamT -= dt;
+    const p = this.paddle;
+    if (bs.beamT <= 0) {
+      bs.beamT = (sp > 1 ? 2 : 2.8) + Math.random() * 0.8;
+      const aim = p.x + p.w / 2;
+      bs.beams.push({ x: aim, warn: 0.85, fire: 0.35, hit: false });
+      if (sp > 1) bs.beams.push({ x: clamp(aim + (Math.random() < 0.5 ? -90 : 90), 20, W - 20), warn: 1.05, fire: 0.35, hit: false }); // 분노: 2줄
+      this.sound('tick');
+    }
+    for (const b of bs.beams) {
+      if (b.warn > 0) { b.warn -= dt; if (b.warn <= 0) this.sound('power'); continue; }
+      b.fire -= dt;
+      if (!b.hit && b.x > p.x - 6 && b.x < p.x + p.w + 6) {
+        b.hit = true; p.stun = 1.1;
+        this.shake(6); this.sound('hit'); this.vibrate(80);
+        this.burst(b.x, PADDLE_Y, { color: '#f472b6', count: 18, speed: 160 });
+        this.floatText(p.x + p.w / 2, PADDLE_Y - 16, '패들 멈춤!', '#fca5a5', 14);
+      }
+    }
+    bs.beams = bs.beams.filter((b) => b.warn > 0 || b.fire > 0);
   }
 
   damageBoss(dmg, x, y) {
@@ -607,9 +639,42 @@ export default class Breakout extends GameBase {
     }
   }
 
+  drawUfo(ctx, bs, now, angry) {
+    // 광선 (경고선 → 굵은 빛줄기)
+    for (const b of bs.beams) {
+      if (b.warn > 0) {
+        ctx.strokeStyle = `rgba(244,114,182,${0.3 + (Math.floor(now * 14) % 2) * 0.4})`; ctx.setLineDash([6, 6]); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(b.x, bs.y + bs.h); ctx.lineTo(b.x, H); ctx.stroke(); ctx.setLineDash([]);
+      } else {
+        const gw = 10 + Math.sin(now * 40) * 2;
+        const g = ctx.createLinearGradient(b.x - gw, 0, b.x + gw, 0);
+        g.addColorStop(0, 'rgba(244,114,182,0)'); g.addColorStop(0.5, 'rgba(253,242,248,.95)'); g.addColorStop(1, 'rgba(244,114,182,0)');
+        ctx.fillStyle = g; ctx.fillRect(b.x - gw, bs.y + bs.h, gw * 2, H);
+      }
+    }
+    const cx = bs.x + bs.w / 2, cy = bs.y + bs.h * 0.62;
+    // 유리 돔 + 외계인
+    ctx.fillStyle = 'rgba(165,243,252,.45)'; ctx.beginPath(); ctx.ellipse(cx, cy - 8, 26, 22, 0, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = bs.flash > 0 ? '#fff' : angry ? '#f87171' : '#86efac';
+    ctx.beginPath(); ctx.ellipse(cx, cy - 14, 11, 12, 0, 0, Math.PI * 2); ctx.fill();
+    const look = clamp((this.paddle.x + this.paddle.w / 2 - cx) / 80, -1, 1) * 2;
+    ctx.fillStyle = '#111827';
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(cx + s * 4.5 + look, cy - 15, 3, 4.2, s * 0.4, 0, Math.PI * 2); ctx.fill(); }
+    // 접시
+    const g = ctx.createLinearGradient(0, cy - 6, 0, cy + 10);
+    g.addColorStop(0, bs.flash > 0 ? '#fff' : '#cbd5e1'); g.addColorStop(1, angry ? '#7f1d1d' : '#475569');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx, cy, bs.w / 2, 11, 0, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 7; i++) {
+      const lx = bs.x + 12 + i * ((bs.w - 24) / 6), on = (Math.floor(now * 6) + i) % 3 === 0;
+      ctx.fillStyle = on ? '#fde047' : angry ? '#f87171' : '#38bdf8';
+      ctx.beginPath(); ctx.arc(lx, cy + 2, 2.6, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
   drawBoss(ctx, now) {
     const bs = this.boss;
     const angry = bs.hp < bs.maxHp / 2;
+    if (bs.type === 'ufo') { this.drawUfo(ctx, bs, now, angry); this.drawBossBar(ctx, bs, angry); return; }
     const g = ctx.createLinearGradient(0, bs.y, 0, bs.y + bs.h);
     g.addColorStop(0, bs.flash > 0 ? '#fff' : angry ? '#f87171' : '#a78bfa');
     g.addColorStop(1, angry ? '#7f1d1d' : '#4c1d95');
@@ -624,11 +689,14 @@ export default class Breakout extends GameBase {
     ctx.strokeStyle = '#111827'; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.moveTo(bs.x + 24, ey - 10); ctx.lineTo(bs.x + 44, ey - 6); ctx.moveTo(bs.x + bs.w - 24, ey - 10); ctx.lineTo(bs.x + bs.w - 44, ey - 6); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(bs.x + 44, bs.y + 31); for (let i = 0; i <= 8; i++) ctx.lineTo(bs.x + 44 + i * 4, bs.y + 31 + (i % 2 ? -3 : 0)); ctx.stroke();
-    // 체력바
+    this.drawBossBar(ctx, bs, angry);
+  }
+
+  drawBossBar(ctx, bs, angry) {
     ctx.fillStyle = 'rgba(0,0,0,.5)'; roundRect(ctx, W / 2 - 110, 14, 220, 10, 5);
     ctx.fillStyle = angry ? '#ef4444' : '#a78bfa'; roundRect(ctx, W / 2 - 108, 16, 216 * Math.max(0, bs.hp / bs.maxHp), 6, 3);
     ctx.fillStyle = '#e9d5ff'; ctx.font = '800 11px system-ui, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(`거대 벽돌${angry ? ' (분노)' : ''}`, W / 2, 10); ctx.textAlign = 'start';
+    ctx.fillText(`${bs.name}${angry ? ' (분노)' : ''}`, W / 2, 10); ctx.textAlign = 'start';
   }
 
   drawPaddle(ctx, now) {

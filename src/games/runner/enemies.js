@@ -20,6 +20,8 @@ export const ENEMIES = {
   magmaSlime: { name: '마그마 슬라임', w: 26, h: 20, hp: 5, speed: 35, score: 25, color: '#dc2626', split: true },
   eagle:      { name: '독수리', w: 28, h: 16, hp: 3, speed: 90, score: 25, color: '#a16207', fly: true },
   cloud:      { name: '번개 구름', w: 40, h: 20, hp: 4, score: 30, color: '#64748b', fly: true },
+  frog:       { name: '독개구리', w: 22, h: 16, hp: 4, speed: 0, score: 20, color: '#65a30d' },
+  crystalBug: { name: '수정 벌레', w: 24, h: 14, hp: 4, speed: 34, score: 25, color: '#22d3ee' },
   robot:      { name: '경비 로봇', w: 22, h: 28, hp: 6, speed: 40, score: 30, color: '#64748b' },
   // 보스
   golem:      { name: '바위 골렘', w: 52, h: 60, hp: 70, score: 300, color: '#78716c', boss: true },
@@ -121,6 +123,36 @@ export const AI = {
     e.x += (dx / d) * sp * dt + e.kb * dt;
     e.y += (dy / d) * sp * dt + Math.sin(e.t * 3) * 10 * dt;
     e.dir = Math.sign(dx) || 1;
+  },
+
+  // 독개구리: 플레이어 쪽으로 펄쩍펄쩍 뛰어오고, 가끔 독침을 뱉음
+  frog(g, e, dt, dx, dy) {
+    e.dir = Math.sign(dx) || 1;
+    if (e.onGround) {
+      e.vx = 0;
+      e.cool = (e.cool ?? 1) - dt;
+      if (e.cool <= 0 && Math.abs(dx) < 300 && Math.abs(dy) < 120) {
+        if (Math.random() < 0.3) { shoot(g, e, e.dir * 210, -40, { color: '#a3e635', r: 3.5 }); g.sound('tick'); }
+        else if (g.groundAhead(e, e.dir)) { e.vy = -470; e.vx = e.dir * 150; g.sound('jump'); }
+        e.cool = 1.1 + Math.random() * 0.6;
+      }
+    }
+  },
+
+  // 수정 벌레: 기어다니다가 가까이 오면 등에서 수정 조각 3개를 부채꼴로 발사
+  crystalBug(g, e, dt, dx, dy) {
+    e.cool = (e.cool ?? 2) - dt;
+    if (e.state === 'charge') {
+      e.vx = 0;
+      if (e.t > 0.5) {
+        for (const a of [-0.5, 0, 0.5]) shoot(g, e, Math.sin(a) * 170 + Math.sign(dx) * 40, -Math.cos(a) * 260, { kind: 'arc', g: 600, r: 4, color: '#67e8f9', y: e.y });
+        g.sound('tick');
+        e.state = 'patrol'; e.cool = 2.6;
+      }
+    } else {
+      patrol(g, e);
+      if (e.cool <= 0 && Math.abs(dx) < 200 && Math.abs(dy) < 90) { e.state = 'charge'; e.t = 0; }
+    }
   },
 
   scorpion(g, e, dt, dx, dy) {
@@ -430,6 +462,34 @@ export function drawEnemy(g, ctx, e) {
       ctx.strokeStyle = '#334155'; ctx.lineWidth = 5;
       ctx.beginPath(); ctx.moveTo(x + e.w / 2, y + e.h - 10); ctx.lineTo(x + e.w / 2 + Math.cos(ang) * 14, y + e.h - 10 + Math.sin(ang) * 14); ctx.stroke();
       eyes(x + e.w / 2, y + e.h - 12, warn ? '#ef4444' : '#22d3ee', 3);
+      break;
+    }
+    case 'frog': {
+      const air = !e.onGround, cx = x + e.w / 2;
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.ellipse(cx, y + e.h - 6, e.w / 2, air ? 8 : 7, 0, 0, Math.PI * 2); ctx.fill();
+      // 뒷다리
+      ctx.fillStyle = e.flash > 0 ? '#fff' : '#4d7c0f';
+      if (air) { ctx.fillRect(cx - dir * 12 - 3, y + e.h - 4, 6, 3); ctx.fillRect(cx - dir * 6 - 3, y + e.h - 1, 6, 3); }
+      else { ctx.beginPath(); ctx.ellipse(cx - dir * 7, y + e.h - 3, 6, 3, 0, 0, Math.PI * 2); ctx.fill(); }
+      // 배 · 눈
+      ctx.fillStyle = '#d9f99d'; ctx.beginPath(); ctx.ellipse(cx + dir * 3, y + e.h - 4, 6, 3, 0, 0, Math.PI * 2); ctx.fill();
+      for (const k of [-4, 4]) { eyes(cx + k + dir * 3, y + e.h - 13, '#fef08a', 3.2); eyes(cx + k + dir * 4, y + e.h - 13, '#111', 1.4); }
+      ctx.fillStyle = '#f97316'; ctx.fillRect(cx - 6, y + e.h - 9, 2, 2); ctx.fillRect(cx + 1, y + e.h - 11, 2, 2); // 독 반점
+      break;
+    }
+    case 'crystalBug': {
+      const cx = x + e.w / 2, glow = e.state === 'charge' ? 0.5 + Math.sin(t * 30) * 0.5 : 0;
+      ctx.fillStyle = e.flash > 0 ? '#fff' : '#334155';
+      ctx.beginPath(); ctx.ellipse(cx, y + e.h - 5, e.w / 2, 6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 2;
+      for (let k = -1; k <= 1; k++) { const lg = Math.sin(t * 14 + k) * 2; ctx.beginPath(); ctx.moveTo(cx + k * 6, y + e.h - 2); ctx.lineTo(cx + k * 6 + lg, y + e.h + 1); ctx.stroke(); }
+      // 등의 수정 3개
+      for (const [ox, hh] of [[-6, 9], [0, 13], [6, 9]]) {
+        ctx.fillStyle = glow > 0.5 ? '#ecfeff' : col;
+        ctx.beginPath(); ctx.moveTo(cx + ox - 3, y + e.h - 8); ctx.lineTo(cx + ox, y + e.h - 8 - hh); ctx.lineTo(cx + ox + 3, y + e.h - 8); ctx.fill();
+      }
+      eyes(cx + dir * 9, y + e.h - 6, '#f0abfc', 1.6);
       break;
     }
     case 'charger': {

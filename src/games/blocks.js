@@ -21,6 +21,53 @@ const NAMES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
 const T = 2, O = 1, I = 0;
 const COLORS = ['#38bdf8', '#facc15', '#c084fc', '#4ade80', '#f87171', '#60a5fa', '#fb923c', '#6b7280']; // 마지막 = 쓰레기 줄
 const GARBAGE = 7;
+const shadeHex = (hex, d) => '#' + [1, 3, 5].map((i) => Math.max(0, Math.min(255, parseInt(hex.slice(i, i + 2), 16) + d)).toString(16).padStart(2, '0')).join('');
+/** 블록 스킨 그리기 (0,0 ~ s,s) */
+function paintCell(c, skin, s, color) {
+  switch (skin) {
+    case 'jewel': { // 보석: 네 방향 면 + 가운데 평면
+      const q = s * 0.25;
+      const face = (pts, col) => { c.fillStyle = col; c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.fill(); };
+      face([[0, 0], [s, 0], [s - q, q], [q, q]], shadeHex(color, 60));
+      face([[0, 0], [q, q], [q, s - q], [0, s]], shadeHex(color, 25));
+      face([[s, 0], [s, s], [s - q, s - q], [s - q, q]], shadeHex(color, -35));
+      face([[0, s], [q, s - q], [s - q, s - q], [s, s]], shadeHex(color, -65));
+      c.fillStyle = color; c.fillRect(q, q, s - q * 2, s - q * 2);
+      c.fillStyle = 'rgba(255,255,255,.45)'; c.fillRect(q + 1, q + 1, Math.max(2, s * 0.12), Math.max(2, s * 0.12));
+      break;
+    }
+    case 'pixel': { // 8비트: 각진 칸 + 밝은 왼위 / 어두운 오른아래 테두리
+      const b = Math.max(2, Math.round(s / 8));
+      c.fillStyle = color; c.fillRect(0, 0, s, s);
+      c.fillStyle = shadeHex(color, 70); c.fillRect(0, 0, s, b); c.fillRect(0, 0, b, s);
+      c.fillStyle = shadeHex(color, -70); c.fillRect(0, s - b, s, b); c.fillRect(s - b, 0, b, s);
+      c.fillStyle = '#fff'; c.fillRect(b, b, b, b);
+      break;
+    }
+    case 'candy': { // 사탕: 둥글고 반짝
+      const g = c.createRadialGradient(s * 0.35, s * 0.3, 1, s / 2, s / 2, s * 0.7);
+      g.addColorStop(0, shadeHex(color, 90)); g.addColorStop(0.5, color); g.addColorStop(1, shadeHex(color, -50));
+      c.fillStyle = g; roundRect(c, 1, 1, s - 2, s - 2, s / 2.6);
+      c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.ellipse(s * 0.34, s * 0.28, s * 0.14, s * 0.08, -0.5, 0, Math.PI * 2); c.fill();
+      break;
+    }
+    case 'neon': { // 네온: 어두운 속 + 빛나는 테두리
+      c.fillStyle = shadeHex(color, -150); roundRect(c, 2, 2, s - 4, s - 4, s / 6);
+      c.shadowColor = color; c.shadowBlur = s / 4;
+      c.strokeStyle = color; c.lineWidth = Math.max(1.5, s / 12);
+      c.beginPath(); c.roundRect?.(3, 3, s - 6, s - 6, s / 6); c.stroke();
+      c.shadowBlur = 0;
+      c.fillStyle = color; c.globalAlpha = 0.35; c.fillRect(s * 0.3, s * 0.3, s * 0.4, s * 0.4); c.globalAlpha = 1;
+      break;
+    }
+    default: // 기본: 둥근 칸 + 윗면 하이라이트
+      c.fillStyle = color;
+      roundRect(c, 1, 1, s - 2, s - 2, s / 6);
+      c.globalAlpha = 0.25; c.fillStyle = '#fff';
+      c.fillRect(3, 3, s - 6, Math.max(2, s / 8));
+      c.globalAlpha = 1;
+  }
+}
 // ---- 멀티플레이(배틀) ----
 const OPP_W = 156;                                     // 상대 보드 패널 폭
 const LINE_ATK = [0, 0, 1, 2, 4];                      // 일반 클리어 공격량
@@ -99,6 +146,7 @@ export default class Blocks extends GameBase {
   static settings = [
     { id: 'mode', label: '모드', type: 'select', default: 'marathon',
       options: [['marathon', '마라톤 (끝까지)'], ['sprint', '스프린트 (40줄 최단 시간)'], ['ultra', '울트라 (2분 최고 점수)'], ['dig', '땅파기 (쓰레기 10줄 최단 시간)']], tip: '모드마다 기록이 따로 저장돼요. 새 게임부터 적용' },
+    { id: 'skin', label: '블록 모양', type: 'select', default: 'classic', options: [['classic', '기본'], ['jewel', '보석'], ['pixel', '8비트'], ['candy', '사탕'], ['neon', '네온']] },
     { id: 'startLevel', label: '시작 레벨', type: 'range', min: 1, max: 20, default: 1, unit: '',
       tip: '높을수록 처음부터 빠르게 떨어짐 (점수도 레벨만큼 곱해짐). 새 게임부터 적용' },
     { id: 'linesPerLevel', label: '레벨업 줄 수', type: 'range', min: 4, max: 15, default: 8, unit: '줄', tip: '이만큼 줄을 지울 때마다 레벨 +1' },
@@ -650,15 +698,11 @@ export default class Blocks extends GameBase {
     return y;
   }
 
+  /** 블록 한 칸: 스킨별 모양을 (스킨·색·크기)마다 한 번 그려 두고 이미지로 붙임 */
   drawCell(ctx, px, py, size, color, alpha = 1) {
+    const skin = this.cfg.skin ?? 'classic';
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = color;
-    roundRect(ctx, px + 1, py + 1, size - 2, size - 2, size / 6);
-    if (alpha === 1) { // 윗면 하이라이트
-      ctx.globalAlpha = 0.25;
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(px + 3, py + 3, size - 6, Math.max(2, size / 8));
-    }
+    this.drawCached(ctx, `cell|${skin}|${color}|${size}|`, px, py, size, size, (c) => paintCell(c, skin, size, color));
     ctx.globalAlpha = 1;
   }
 

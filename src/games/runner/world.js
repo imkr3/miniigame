@@ -62,6 +62,20 @@ export const BIOMES = {
     seg: { flatEnemy: 3, spikes: 1.2, platPit: 1.2, elevator: 1, moverGap: 1, step: 0.8, block: 0.8, springWall: 0.6 },
     pool: ['skeleton', 'skeleton', 'ghost', 'bat'], hard: ['ghost', 'skeleton'],
   },
+  swamp: {
+    name: '독 늪', sub: '초록 물은 독! 개구리를 조심',
+    sky: ['#06140d', '#2b4a2a'], far: '#163020', near: '#1d3b27', ground: '#4a5a36', dirt: '#3a472b', top: '#84cc16', plat: '#7c5f3e',
+    lava: true, poison: true, crumble: true, fireflies: true,
+    seg: { flatEnemy: 3, gap: 1.5, crumbleBridge: 1.3, platPit: 1.3, step: 1, spikes: 0.4, block: 0.8 },
+    pool: ['frog', 'frog', 'slime', 'drone'], hard: ['frog', 'turret'],
+  },
+  crystal: {
+    name: '수정 동굴', sub: '빛나는 수정 사이로',
+    sky: ['#050816', '#1b1f4a'], far: '#141a3a', near: '#1c2350', ground: '#3b3f6b', dirt: '#2e3157', top: '#67e8f9', plat: '#6366f1',
+    dark: 0.45, ceiling: true, crumble: true, crystals: true,
+    seg: { flatEnemy: 3, step: 1.2, gap: 1.2, icicles: 1.1, platPit: 1.4, spikes: 0.8, block: 0.8 },
+    pool: ['crystalBug', 'crystalBug', 'bat', 'slime'], hard: ['crystalBug', 'turret'],
+  },
   factory: {
     name: '기계 공장', sub: '벨트와 톱날을 조심!',
     sky: ['#111827', '#334155'], far: '#1f2937', near: '#273244', ground: '#4b5563', dirt: '#374151', top: '#facc15', plat: '#6b7280',
@@ -70,7 +84,7 @@ export const BIOMES = {
     pool: ['robot', 'robot', 'turret', 'drone'], hard: ['robot', 'charger'],
   },
 };
-export const BIOME_ORDER = ['grass', 'cave', 'desert', 'snow', 'volcano', 'sky', 'castle', 'factory'];
+export const BIOME_ORDER = ['grass', 'cave', 'desert', 'snow', 'volcano', 'sky', 'castle', 'factory', 'swamp', 'crystal'];
 export const BOSS_ORDER = ['golem', 'slimeKing', 'mech'];
 
 /** 한 판의 바이옴 순서: 초원으로 시작하고 나머지는 무작위 */
@@ -464,13 +478,14 @@ function drawTile(g, ctx, c, r, t, now) {
     ctx.fillStyle = '#cbd5e1';
     for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(x + i * 8, y + T); ctx.lineTo(x + i * 8 + 4, y + 10); ctx.lineTo(x + i * 8 + 8, y + T); ctx.fill(); }
   } else if (t === LAVA) {
-    const top = g.tileAt(c, r - 1) !== LAVA;
-    ctx.fillStyle = '#dc2626'; ctx.fillRect(x, y, T, T);
+    const top = g.tileAt(c, r - 1) !== LAVA, poison = g.B?.poison;
+    ctx.fillStyle = poison ? '#3f6212' : '#dc2626'; ctx.fillRect(x, y, T, T);
     if (top) {
-      ctx.fillStyle = '#f97316';
+      ctx.fillStyle = poison ? '#65a30d' : '#f97316';
       const wv = Math.sin(now * 3 + c) * 2;
       ctx.fillRect(x, y + 2 + wv, T, 5);
-      ctx.fillStyle = '#fde047'; ctx.fillRect(x + ((c * 5) % 14), y + 3 + wv, 4, 2);
+      ctx.fillStyle = poison ? '#d9f99d' : '#fde047'; ctx.fillRect(x + ((c * 5) % 14), y + 3 + wv, 4, 2);
+      if (poison && (c + Math.floor(now * 2)) % 5 === 0) { ctx.beginPath(); ctx.arc(x + 12, y - 2 - ((now * 20 + c * 7) % 10), 2.5, 0, Math.PI * 2); ctx.fill(); } // 독 거품
     }
   } else if (t === CONV_L || t === CONV_R) {
     ctx.fillStyle = '#374151'; ctx.fillRect(x, y, T, T);
@@ -531,6 +546,20 @@ export function drawBackground(g, ctx, cam) {
       ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = B.sky[1]; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
+    }
+  }
+  if (B.crystals) { // 빛나는 수정 기둥 실루엣
+    for (let i = 0; i < 9; i++) {
+      const x = ((i * 89 - cam * 0.35) % (W + 80) + W + 80) % (W + 80) - 40, hgt = 40 + (i * 37) % 60, glow = 0.35 + Math.sin(now * 1.5 + i) * 0.15;
+      ctx.fillStyle = i % 2 ? `rgba(103,232,249,${glow})` : `rgba(192,132,252,${glow})`;
+      ctx.beginPath(); ctx.moveTo(x - 10, 300); ctx.lineTo(x - 4, 300 - hgt); ctx.lineTo(x + 2, 300 - hgt - 12); ctx.lineTo(x + 10, 300); ctx.fill();
+    }
+  }
+  if (B.fireflies) { // 반딧불
+    for (let i = 0; i < 26; i++) {
+      const x = (((i * 131 + Math.sin(now * 0.7 + i) * 30 - cam * 0.4) % W) + W) % W, y = 120 + (i * 61) % 180 + Math.sin(now + i * 2) * 10;
+      const a = 0.3 + 0.7 * Math.max(0, Math.sin(now * 2 + i * 1.7));
+      ctx.fillStyle = `rgba(217,249,157,${a})`; ctx.fillRect(x, y, 2.5, 2.5);
     }
   }
   // 날씨 입자

@@ -85,7 +85,7 @@ export default class Maze extends GameBase {
   static meta = {
     id: 'maze',
     title: '미로 추격',
-    description: '슬라임을 움직여 점을 모두 모으세요. 큰 점을 먹으면 잠시 박쥐를 잡을 수 있어요. 박쥐마다 쫓는 방식이 달라요. 양옆 터널로 빠져나갈 수 있어요!',
+    description: '슬라임을 움직여 점을 모두 모으세요. 큰 점을 먹으면 잠시 박쥐를 잡을 수 있어요. 박쥐마다 쫓는 방식이 달라요. 3라운드부터 순간이동하는 초록 박쥐 등장! 양옆 터널로 빠져나갈 수 있어요!',
     controls: '방향키 / WASD (미리 눌러두면 갈림길에서 꺾어요)',
     touchControls: '화면을 밀어서 방향 전환 (또는 아래 방향 버튼)',
   };
@@ -157,6 +157,11 @@ export default class Maze extends GameBase {
       corner: [{ x: COLS - 2, y: 1 }, { x: 1, y: 1 }, { x: 1, y: ROWS - 2 }][i % 3],
       eyes: false,
     }));
+    // 3라운드부터 초록 박쥐(순간이동): 플레이어 근처로 예고 후 순간이동
+    if (this.round >= 3) {
+      const h = this.chasers[0].home;
+      this.chasers.push({ ...h, home: h, dir: STOP, t: 0, speed: 3.3 * speedUp * k, color: '#22c55e', wait: 8, persona: 'warp', corner: { x: COLS - 2, y: ROWS - 2 }, eyes: false, warpT: 6 });
+    }
     this.modeT = 0;
     this.fright = 0;
     this.combo = 0;
@@ -166,6 +171,28 @@ export default class Maze extends GameBase {
   }
 
   updateInfo() { this.setInfo(`목숨 ${'●'.repeat(this.lives)} · 라운드 ${this.round}`); }
+
+  /** 순간이동 박쥐: 일정 시간마다 플레이어 근처 빈 칸을 골라 1초 예고 후 그 자리로 */
+  updateWarp(c, dt) {
+    if (c.warp) {
+      if ((c.warp.t -= dt) <= 0) {
+        this.burst((c.x + 0.5) * CELL, (c.y + 0.5) * CELL, { color: '#86efac', count: 12, speed: 90, life: 0.4 });
+        Object.assign(c, { x: c.warp.x, y: c.warp.y, t: 0, dir: STOP });
+        this.burst((c.x + 0.5) * CELL, (c.y + 0.5) * CELL, { color: '#22c55e', count: 16, speed: 120, life: 0.5 });
+        c.warp = null;
+        this.sound('power');
+      }
+      return;
+    }
+    if ((c.warpT -= dt) > 0) return;
+    c.warpT = 9;
+    const p = this.player, cells = [];
+    this.map.forEach((row, y) => [...row].forEach((ch, x) => {
+      const d = Math.abs(x - p.x) + Math.abs(y - p.y);
+      if (ch !== '#' && ch !== 'C' && x > 0 && x < COLS - 1 && d >= 5 && d <= 8) cells.push({ x, y });
+    }));
+    if (cells.length) c.warp = { ...cells[Math.floor(Math.random() * cells.length)], t: 1.1 };
+  }
 
   /** 터널: 가로로 벗어나면 반대편 칸 */
   open(x, y) { return y >= 0 && y < ROWS && this.map[y][(x % COLS + COLS) % COLS] !== '#'; }
@@ -308,6 +335,7 @@ export default class Maze extends GameBase {
     for (const c of this.chasers) {
       if (c.wait > 0) { c.wait -= dt; continue; }
       if (this.iceT > 0 && !c.eyes) continue; // 얼어붙음
+      if (c.persona === 'warp' && !c.eyes && !(this.fright > 0 && !c.fresh)) this.updateWarp(c, dt);
       const tunnel = this.map[c.y][0] !== '#' && (c.x <= 1 || c.x >= COLS - 2);
       const k = c.eyes ? 2.6 : (this.fright > 0 && !c.fresh ? 0.55 : 1) * (tunnel ? 0.6 : 1);
       this.move(c, dt * k, (e) => this.chooseChaserDir(e), (e) => {
@@ -429,6 +457,12 @@ export default class Maze extends GameBase {
     const life = this.dying > 0 ? Math.max(0, this.dying - 0.3) / 0.8 : 1;
     this.drawSlime(ctx, (pp.x + 0.5) * CELL, (pp.y + 0.5) * CELL, isZero(pl.dir) ? DIRS.down : pl.dir, moving ? now * 12 : now * 3, life);
 
+    // 순간이동 예고: 초록 소용돌이
+    for (const c of this.chasers) if (c.warp) {
+      const wx = (c.warp.x + 0.5) * CELL, wy = (c.warp.y + 0.5) * CELL;
+      ctx.strokeStyle = `rgba(34,197,94,${0.5 + Math.sin(now * 20) * 0.3})`; ctx.lineWidth = 2.5;
+      for (let k = 0; k < 2; k++) { const a0 = now * 6 + k * Math.PI; ctx.beginPath(); ctx.arc(wx, wy, CELL * 0.42 - k * 4, a0, a0 + Math.PI * 1.3); ctx.stroke(); }
+    }
     // 추격자: 박쥐
     const blink = this.fright > 0 && this.fright < 1.5 && Math.floor(this.fright * 6) % 2 === 0;
     this.chasers.forEach((c, i) => {

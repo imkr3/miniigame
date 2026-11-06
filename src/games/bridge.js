@@ -24,6 +24,18 @@ const SKIES = [
   ['#14532d', '#bbf7d0', '#4ade80', '#15803d', '#052e16'],
 ];
 const rand = (a, b) => a + Math.random() * (b - a);
+// 캐릭터: 지금까지 모은 보석 수(누적)로 열림
+const SKINS = [
+  { id: 'blob', name: '동글이', need: 0 },
+  { id: 'cat', name: '냥냥이', need: 20 },
+  { id: 'penguin', name: '펭펭이', need: 50 },
+  { id: 'frog', name: '개굴이', need: 100 },
+  { id: 'robot', name: '삐빅이', need: 180 },
+  { id: 'ghost', name: '둥실이', need: 300 },
+];
+const GEM_KEY = 'miniigame:bridge:gemsTotal', SKIN_KEY = 'miniigame:bridge:skin';
+const loadNum = (k, d) => { try { return Number(localStorage.getItem(k) ?? d) || d; } catch { return d; } };
+const saveNum = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* ignore */ } };
 /** #rrggbb 색을 밝게(+)/어둡게(-) */
 const shade = (hex, d) => '#' + [1, 3, 5].map((i) => Math.max(0, Math.min(255, parseInt(hex.slice(i, i + 2), 16) + d)).toString(16).padStart(2, '0')).join('');
 
@@ -50,6 +62,9 @@ export default class Bridge extends GameBase {
   }
 
   init() {
+    this.gemsTotal = loadNum(GEM_KEY, 0);
+    this.skin = Math.min(SKINS.length - 1, loadNum(SKIN_KEY, 0));
+    if (SKINS[this.skin].need > this.gemsTotal) this.skin = 0;
     this.d = DIFF[this.cfg.difficulty] ?? DIFF.normal;
     this.setRecord(`bridge${this.cfg.guide ? '-guide' : ''}${this.cfg.difficulty !== 'normal' ? '-' + this.cfg.difficulty : ''}`);
     this.cam = 0; this.camTo = 0;
@@ -104,8 +119,31 @@ export default class Bridge extends GameBase {
 
   held() { return this.pointer.down || this.isDown('action'); }
 
+  choosing() { return this.state === 'playing' && this.count === 0 && this.phase === 'idle'; }
+
+  /** 열린 캐릭터들 사이에서 바꾸기 */
+  changeSkin(d) {
+    const open = SKINS.map((k, i) => i).filter((i) => SKINS[i].need <= this.gemsTotal);
+    const k = open.indexOf(this.skin);
+    this.skin = open[(k + d + open.length) % open.length];
+    saveNum(SKIN_KEY, this.skin);
+    this.sound('move');
+  }
+
+  onAction(action) {
+    if ((action === 'left' || action === 'right') && this.choosing()) this.changeSkin(action === 'left' ? -1 : 1);
+  }
+
   update(dt) {
-    const held = this.held(), press = held && !this.prevHeld, release = !held && this.prevHeld;
+    let held = this.held(), press = held && !this.prevHeld;
+    // 첫 기둥 전에는 화면 위쪽 캐릭터 고르기 화살표를 누를 수 있음 (막대는 안 자람)
+    if (press && this.pointer.down && this.choosing() && this.pointer.y < 190) {
+      this.changeSkin(this.pointer.x < W / 2 ? -1 : 1);
+      this.prevHeld = true; this.skinTouch = true;
+      return;
+    }
+    if (this.skinTouch) { if (!held) this.skinTouch = false; held = false; press = false; }
+    const release = !held && this.prevHeld;
     this.prevHeld = held;
     const st = this.stick, h = this.hero, next = this.pillars[this.cur + 1];
     // 카메라는 부드럽게 따라감
@@ -144,6 +182,9 @@ export default class Bridge extends GameBase {
         const g = next.gem;
         if (g && !g.got && Math.abs(h.x - g.x) < 16 && Math.abs((h.y - 13) - g.y) < 20) {
           g.got = true; this.gems++; this.addScore(2);
+          this.gemsTotal++; saveNum(GEM_KEY, this.gemsTotal);
+          const un = SKINS.find((k) => k.need === this.gemsTotal);
+          if (un) { this.floatText(W / 2, 150, `새 캐릭터 ${un.name} 해금!`, '#fde68a', 16); this.sound('levelup'); }
           this.burst(g.x - this.cam, g.y, { color: '#67e8f9', count: 14, speed: 120, life: 0.5 });
           this.floatText(g.x - this.cam, g.y - 10, '+2 💎', '#a5f3fc', 14);
           this.sound('dot'); this.updateInfo();
@@ -288,9 +329,17 @@ export default class Bridge extends GameBase {
     ctx.font = '900 46px system-ui, sans-serif';
     ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.strokeText(String(this.score), W / 2, 80);
     ctx.fillStyle = '#fff'; ctx.fillText(String(this.score), W / 2, 80);
-    if (this.state === 'playing' && this.count === 0 && this.phase === 'idle') {
+    if (this.choosing()) {
       ctx.font = '700 15px system-ui, sans-serif'; ctx.fillStyle = 'rgba(15,23,42,.75)';
-      ctx.fillText(this.touchMode ? '화면을 누르고 있다가 떼세요' : 'Space 를 누르고 있다가 떼세요', W / 2, 130);
+      ctx.fillText(this.touchMode ? '아래쪽을 누르고 있다가 떼세요' : 'Space 를 누르고 있다가 떼세요', W / 2, 205);
+      // 캐릭터 고르기
+      const sk = SKINS[this.skin], next = SKINS.find((k) => k.need > this.gemsTotal);
+      ctx.fillStyle = 'rgba(15,23,42,.55)'; roundRect(ctx, W / 2 - 120, 104, 240, 76, 14);
+      ctx.save(); ctx.translate(W / 2, 156); ctx.scale(1.3, 1.3); this.paintSkin(ctx, sk.id, 0); ctx.restore();
+      ctx.fillStyle = '#fff'; ctx.font = '900 22px system-ui'; ctx.fillText('◀', W / 2 - 96, 150); ctx.fillText('▶', W / 2 + 96, 150);
+      ctx.font = '800 13px system-ui, sans-serif'; ctx.fillText(sk.name, W / 2, 176);
+      ctx.font = '600 11px system-ui, sans-serif'; ctx.fillStyle = '#e2e8f0';
+      ctx.fillText(next ? `다음 캐릭터: 보석 ${this.gemsTotal}/${next.need}` : `캐릭터 모두 해금! (보석 ${this.gemsTotal})`, W / 2, 122);
     }
     ctx.textAlign = 'start';
   }
@@ -340,22 +389,62 @@ export default class Bridge extends GameBase {
     ctx.scale(1 / squash, squash);
     ctx.fillStyle = 'rgba(0,0,0,.18)';
     if (!h.air && this.phase !== 'drop') { ctx.beginPath(); ctx.ellipse(0, bob, 11, 3, 0, 0, Math.PI * 2); ctx.fill(); }
-    // 발
-    ctx.fillStyle = '#1f2937';
-    const step = walking ? Math.sin(h.walkT * 16) * 3 : 0;
-    ctx.fillRect(-7 + step, -4, 5, 4); ctx.fillRect(2 - step, -4, 5, 4);
-    // 몸
-    ctx.fillStyle = '#f8fafc';
-    ctx.beginPath(); ctx.arc(0, -15, 12, 0, Math.PI * 2); ctx.fill();
-    // 목도리
-    ctx.fillStyle = '#ef4444';
-    roundRect(ctx, -11, -12, 22, 5, 2);
-    const flap = Math.sin(performance.now() / 120) * 2;
-    ctx.fillRect(-14, -11 + flap, 5, 3);
-    // 눈
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath(); ctx.arc(4, -18, 2, 0, Math.PI * 2); ctx.arc(9, -18, 2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fda4af'; ctx.beginPath(); ctx.arc(9, -13.5, 2, 0, Math.PI * 2); ctx.fill();
+    this.paintSkin(ctx, SKINS[this.skin].id, walking ? Math.sin(h.walkT * 16) * 3 : 0);
     ctx.restore();
+  }
+
+  /** 캐릭터 그리기 (원점 = 발 밑, 오른쪽을 봄) */
+  paintSkin(ctx, id, step) {
+    const now = performance.now(), flap = Math.sin(now / 120) * 2;
+    const eye = (x, y, r = 2) => { ctx.fillStyle = '#0f172a'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x + 0.6, y - 0.7, r * 0.35, 0, Math.PI * 2); ctx.fill(); };
+    const feet = (c = '#1f2937') => { ctx.fillStyle = c; ctx.fillRect(-7 + step, -4, 5, 4); ctx.fillRect(2 - step, -4, 5, 4); };
+    const ball = (c) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, -15, 12, 0, Math.PI * 2); ctx.fill(); };
+    const blush = () => { ctx.fillStyle = 'rgba(251,113,133,.6)'; ctx.beginPath(); ctx.arc(9, -12.5, 2.2, 0, Math.PI * 2); ctx.fill(); };
+    switch (id) {
+      case 'cat':
+        feet('#9a3412'); ball('#fb923c');
+        ctx.fillStyle = '#fb923c';
+        for (const ex of [-6, 5]) { ctx.beginPath(); ctx.moveTo(ex - 4, -24); ctx.lineTo(ex, -32); ctx.lineTo(ex + 4, -24); ctx.fill(); }
+        ctx.strokeStyle = '#c2410c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-10, -20); ctx.lineTo(-4, -18); ctx.moveTo(-11, -14); ctx.lineTo(-5, -14); ctx.stroke(); // 줄무늬
+        ctx.beginPath(); ctx.moveTo(-11, -10); ctx.quadraticCurveTo(-20, -14 + flap, -18, -24); ctx.stroke(); // 꼬리
+        eye(4, -18); eye(9, -18); blush();
+        ctx.strokeStyle = '#7c2d12'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(10, -14); ctx.lineTo(16, -15); ctx.moveTo(10, -13); ctx.lineTo(16, -12); ctx.stroke();
+        break;
+      case 'penguin':
+        feet('#f59e0b'); ball('#1e293b');
+        ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.ellipse(3, -13, 7, 9, 0, 0, Math.PI * 2); ctx.fill();
+        eye(4, -19); eye(9, -19);
+        ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.moveTo(10, -16); ctx.lineTo(16, -15); ctx.lineTo(10, -13); ctx.fill();
+        ctx.fillStyle = '#1e293b'; ctx.beginPath(); ctx.ellipse(-10, -12 + flap * 0.5, 3, 7, 0.3, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'frog':
+        feet('#166534'); ctx.fillStyle = '#4ade80'; ctx.beginPath(); ctx.ellipse(0, -12, 13, 10, 0, 0, Math.PI * 2); ctx.fill();
+        for (const ex of [-3, 7]) { ctx.fillStyle = '#4ade80'; ctx.beginPath(); ctx.arc(ex, -21, 5, 0, Math.PI * 2); ctx.fill(); eye(ex + 1, -21, 2.4); }
+        ctx.strokeStyle = '#166534'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(5, -12, 6, 0.2, Math.PI - 0.6); ctx.stroke();
+        ctx.fillStyle = '#bbf7d0'; ctx.beginPath(); ctx.ellipse(-2, -7, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'robot':
+        feet('#475569');
+        ctx.fillStyle = '#94a3b8'; roundRect(ctx, -11, -27, 22, 23, 5);
+        ctx.fillStyle = '#334155'; roundRect(ctx, -2, -23, 13, 7, 3);
+        ctx.fillStyle = `rgba(34,211,238,${0.6 + Math.sin(now / 150) * 0.4})`; ctx.fillRect(1, -21, 7, 3);
+        ctx.strokeStyle = '#475569'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(0, -27); ctx.lineTo(0, -33); ctx.stroke();
+        ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.arc(0, -34, 2.2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#64748b'; ctx.fillRect(-7, -12, 14, 3);
+        break;
+      case 'ghost':
+        ctx.globalAlpha *= 0.85;
+        ctx.fillStyle = '#f1f5f9';
+        ctx.beginPath(); ctx.arc(0, -16, 12, Math.PI, 0); ctx.lineTo(12, -3);
+        for (let k = 0; k < 4; k++) ctx.quadraticCurveTo(9 - k * 6, -6 + (k % 2 ? 3 : -3) + flap, 6 - k * 6, -3);
+        ctx.lineTo(-12, -3); ctx.closePath(); ctx.fill();
+        ctx.globalAlpha /= 0.85;
+        eye(3, -18, 2.4); eye(9, -18, 2.4); blush();
+        break;
+      default: // 동글이: 빨간 목도리
+        feet(); ball('#f8fafc');
+        ctx.fillStyle = '#ef4444'; roundRect(ctx, -11, -12, 22, 5, 2); ctx.fillRect(-14, -11 + flap, 5, 3);
+        eye(4, -18); eye(9, -18); blush();
+    }
   }
 }

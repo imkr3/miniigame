@@ -8,6 +8,17 @@ const COLS = 20, ROWS = 20, CELL = 20;
 const W = COLS * CELL, H = ROWS * CELL;
 const BONUS_TIME = 6, ITEM_TIME = 8, COMBO_TIME = 3;
 const SPEEDS = { slow: 0.16, normal: 0.13, fast: 0.095 };
+// 스테이지 모드 지형: [x, y, 너비, 높이] 바위 사각형 (출발 줄은 자동으로 비움)
+const STAGES = [
+  { name: '네 개의 돌', rects: [[4, 4, 2, 2], [14, 4, 2, 2], [4, 14, 2, 2], [14, 14, 2, 2]] },
+  { name: '두 막대', rects: [[3, 5, 14, 1], [3, 14, 14, 1]] },
+  { name: '십자로', rects: [[9, 2, 2, 7], [9, 11, 2, 7], [2, 9, 7, 2], [11, 9, 7, 2]] },
+  { name: '상자', rects: [[4, 4, 12, 1], [4, 15, 12, 1], [4, 5, 1, 4], [4, 11, 1, 4], [15, 5, 1, 4], [15, 11, 1, 4]] },
+  { name: '기둥 숲', pillars: true },
+  { name: 'H 골목', rects: [[5, 3, 2, 14], [13, 3, 2, 14], [7, 9, 6, 1]] },
+  { name: '소용돌이', rects: [[2, 2, 16, 1], [17, 2, 1, 14], [4, 15, 14, 1], [4, 5, 1, 10], [4, 5, 11, 1], [14, 5, 1, 7], [7, 12, 8, 1]] },
+  { name: '미궁', rects: [[3, 3, 1, 6], [3, 12, 1, 6], [16, 3, 1, 6], [16, 12, 1, 6], [6, 6, 8, 1], [6, 13, 8, 1], [8, 3, 4, 1], [8, 16, 4, 1]] },
+];
 
 export default class Snake extends GameBase {
   static meta = {
@@ -19,6 +30,7 @@ export default class Snake extends GameBase {
   };
   static mouseClick = null;
   static settings = [
+    { id: 'mode', label: '모드', type: 'select', default: 'classic', options: [['classic', '클래식 (끝없이)'], ['stage', `스테이지 (${STAGES.length}개 지형, 목표만큼 먹으면 다음)`]], tip: '스테이지 모드에서는 장애물·포털 설정을 쓰지 않아요' },
     { id: 'speed', label: '속도', type: 'select', default: 'normal', options: [['slow', '느림'], ['normal', '보통'], ['fast', '빠름']] },
     { id: 'wrap', label: '벽 통과 (반대편으로 나옴)', type: 'toggle', default: false },
     { id: 'rocks', label: '장애물 모드 (먹을수록 바위가 생김)', type: 'toggle', default: false },
@@ -45,11 +57,40 @@ export default class Snake extends GameBase {
     this.rocks = [];
     this.food = null;
     this.portals = null;
+    this.stageMode = this.cfg.mode === 'stage';
+    this.waitT = 0; this.banner = null;
+    if (this.stageMode) {
+      this.stageNo = 1;
+      this.setRecord(`snake-stage${this.cfg.wrap ? '-wrap' : ''}`);
+      this.loadStage();
+      return;
+    }
     if (this.cfg.portals) this.movePortals();
     if (this.cfg.rocks) for (let i = 0; i < 3; i++) this.addRock();
     this.food = this.freeCell();
     const tag = `${this.cfg.wrap ? 'wrap' : ''}${this.cfg.rocks ? 'rocks' : ''}${this.cfg.portals ? 'portal' : ''}`;
     this.setRecord(tag ? `snake-${tag}` : 'snake');
+    this.updateInfo();
+  }
+
+  /** 스테이지 모드: 지형을 깔고 뱀을 출발 위치로 */
+  loadStage() {
+    const st = STAGES[(this.stageNo - 1) % STAGES.length], lap = Math.floor((this.stageNo - 1) / STAGES.length);
+    this.rocks = [];
+    if (st.pillars) for (let y = 2; y < ROWS - 1; y += 4) for (let x = 2; x < COLS - 1; x += 4) this.rocks.push({ x, y }, { x: x + 1, y: y + 1 });
+    for (const [x0, y0, w, h] of st.rects ?? []) for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) this.rocks.push({ x, y });
+    this.rocks = this.rocks.filter((r) => !(r.y === 10 && r.x >= 2 && r.x <= 13) && r.x >= 0 && r.y >= 0 && r.x < COLS && r.y < ROWS);
+    this.clearCache('snake-rocks');
+    this.snake = [{ x: 7, y: 10 }, { x: 6, y: 10 }, { x: 5, y: 10 }];
+    this.dir = DIRS.right; this.queue = [];
+    this.bonus = null; this.item = null; this.food = null;
+    this.interval = this.base * Math.pow(0.95, this.stageNo - 1 + lap * 2);
+    this.stageEat = 0;
+    this.stageGoal = 8 + Math.min(this.stageNo, 10) * 2;
+    this.food = this.freeCell(3);
+    this.waitT = 1.3;
+    this.banner = { text: `스테이지 ${this.stageNo}`, sub: st.name, t: 1.6 };
+    this.stageStart = this.time;
     this.updateInfo();
   }
 
@@ -91,7 +132,8 @@ export default class Snake extends GameBase {
 
   updateInfo() {
     const fx = [this.slowT > 0 && '🧊', this.combo > 1 && `콤보 ×${this.combo}`].filter(Boolean).join(' ');
-    this.setInfo(`길이 ${this.snake.length}${fx ? ` · ${fx}` : ''}`);
+    const head = this.stageMode ? `스테이지 ${this.stageNo} · 남은 먹이 ${Math.max(0, this.stageGoal - this.stageEat)}` : `길이 ${this.snake.length}`;
+    this.setInfo(`${head}${fx ? ` · ${fx}` : ''}`);
   }
 
   onAction(action) {
@@ -103,6 +145,8 @@ export default class Snake extends GameBase {
   }
 
   update(dt) {
+    if (this.banner && (this.banner.t -= dt) <= 0) this.banner = null;
+    if (this.waitT > 0) { this.waitT -= dt; this.timer = 0; return; } // 스테이지 시작 전 잠깐 멈춤
     if (this.bonus && (this.bonus.t -= dt) <= 0) this.bonus = null;
     if (this.item && (this.item.t -= dt) <= 0) this.item = null;
     if (this.slowT > 0 && (this.slowT -= dt) <= 0) this.updateInfo();
@@ -143,6 +187,16 @@ export default class Snake extends GameBase {
     const cx = (head.x + 0.5) * CELL, cy = (head.y + 0.5) * CELL;
     if (eatFood) {
       this.eaten++;
+      if (this.stageMode && ++this.stageEat >= this.stageGoal) {
+        // 스테이지 클리어: 빨리 깰수록 보너스
+        const bonus = 100 * this.stageNo + Math.max(0, Math.round(60 - (this.time - this.stageStart)) * 5);
+        this.addScore(bonus);
+        this.floatText(W / 2, H / 2 + 30, `클리어 보너스 +${bonus}`, '#fde68a', 16);
+        this.sound('levelup');
+        this.stageNo++;
+        this.loadStage();
+        return;
+      }
       // 콤보: 3초 안에 다음 먹이를 먹으면 점수 배수
       this.combo = this.comboT > 0 ? this.combo + 1 : 1;
       this.comboT = COMBO_TIME;
@@ -157,7 +211,7 @@ export default class Snake extends GameBase {
       if (!this.food) return this.gameOver('완벽한 클리어!');
       if (this.eaten % 5 === 0 && !this.bonus) { const c = this.freeCell(); if (c) this.bonus = { ...c, t: BONUS_TIME }; }
       if (this.eaten % 7 === 3 && !this.item) { const c = this.freeCell(); if (c) this.item = { ...c, t: ITEM_TIME, kind: Math.random() < 0.5 ? 'ice' : 'cut' }; }
-      if (this.cfg.rocks && this.eaten % 4 === 0) this.addRock();
+      if (this.cfg.rocks && !this.stageMode && this.eaten % 4 === 0) this.addRock();
       if (this.portals && this.eaten % 10 === 0) this.movePortals();
     } else {
       this.snake.pop();
@@ -203,7 +257,7 @@ export default class Snake extends GameBase {
       c.fillStyle = vg; c.fillRect(0, 0, W, H);
     });
     if (this.cfg.wrap) { ctx.strokeStyle = 'rgba(56,189,248,.35)'; ctx.setLineDash([4, 4]); ctx.strokeRect(1, 1, W - 2, H - 2); ctx.setLineDash([]); }
-    if (this.rocks.length) this.drawCached(ctx, `snake-rocks${this.rocks.length}`, 0, 0, W, H, (c) => {
+    if (this.rocks.length) this.drawCached(ctx, `snake-rocks${this.stageMode ? `s${this.stageNo}-` : ''}${this.rocks.length}`, 0, 0, W, H, (c) => {
       for (const r of this.rocks) {
         c.fillStyle = '#57534e'; roundRect(c, r.x * CELL + 2, r.y * CELL + 3, CELL - 4, CELL - 5, 6);
         c.fillStyle = '#78716c'; roundRect(c, r.x * CELL + 4, r.y * CELL + 4, CELL - 10, CELL - 12, 4);
@@ -239,6 +293,15 @@ export default class Snake extends GameBase {
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
     this.drawSnake(ctx);
+    if (this.banner) {
+      ctx.globalAlpha = Math.min(1, this.banner.t / 0.3);
+      ctx.fillStyle = 'rgba(10,14,20,.6)'; ctx.fillRect(0, H / 2 - 44, W, 76);
+      ctx.textAlign = 'center'; ctx.fillStyle = '#fde68a'; ctx.font = '900 28px system-ui, sans-serif';
+      ctx.fillText(this.banner.text, W / 2, H / 2 - 6);
+      ctx.fillStyle = '#e2e8f0'; ctx.font = '700 14px system-ui, sans-serif';
+      ctx.fillText(`${this.banner.sub} · 먹이 ${this.stageGoal}개`, W / 2, H / 2 + 20);
+      ctx.textAlign = 'start'; ctx.globalAlpha = 1;
+    }
   }
 
   drawStar(ctx, p, color, pulse) {
