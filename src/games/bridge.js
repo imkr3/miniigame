@@ -81,6 +81,7 @@ export default class Bridge extends GameBase {
     this.perfects = 0;
     this.gems = 0;
     this.ruler = 0;
+    this.feather = 0;
     this.bestPerfect = 0;
     this.skyIdx = 0; this.skyFade = 1; this.prevSky = 0;
     this.newStick();
@@ -91,6 +92,7 @@ export default class Bridge extends GameBase {
     const bits = [`💎 ${this.gems}`];
     if (this.perfects > 1) bits.push(`퍼펙트 ×${this.perfects}`);
     if (this.ruler) bits.push(`📏 ${this.ruler}`);
+    if (this.feather) bits.push('🪶');
     this.setInfo(bits.join(' · '));
   }
 
@@ -109,6 +111,7 @@ export default class Bridge extends GameBase {
     if (n > 2 && Math.random() < 0.45) p.gem = { x: last.x + last.w + gap * rand(0.35, 0.65), y: TOP - rand(34, 50), got: false };
     // 자 아이템 (기둥 위)
     if (n > 4 && Math.random() < 0.08) p.ruler = true;
+    else if (n > 6 && Math.random() < 0.06) p.feather = true; // 깃털: 한 번 떨어질 뻔한 걸 살려 줌
     this.pillars.push(p);
   }
 
@@ -218,6 +221,13 @@ export default class Bridge extends GameBase {
     const st = this.stick, next = this.pillars[this.cur + 1], end = st.x + st.len;
     this.sound('land');
     this.success = end >= next.x && end <= next.x + next.w;
+    this.saved = false;
+    if (!this.success && this.feather > 0) { // 깃털: 둥실 떠서 건너감
+      this.feather = 0; this.success = true; this.saved = true;
+      this.floatText(this.hero.x - this.cam, TOP - 50, '🪶 깃털 덕분에 살았다!', '#e0f2fe', 15);
+      this.sound('power');
+      this.updateInfo();
+    }
     const mid = next.x + next.w / 2;
     this.perfect = this.success && Math.abs(end - mid) <= 5;
     // 성공 = 다음 기둥 오른쪽 끝까지, 실패 = 막대 끝까지 걸어감
@@ -243,6 +253,7 @@ export default class Bridge extends GameBase {
       this.sound('eat');
     }
     if (this.ruler > 0) this.ruler--;
+    if (next.feather) { next.feather = false; this.feather = 1; this.floatText(next.x + next.w / 2 - this.cam, TOP - 30, '🪶 깃털 획득 (한 번 구해 줌)', '#e0f2fe', 14); this.sound('power'); }
     if (next.ruler) { next.ruler = false; this.ruler = 3; this.floatText(next.x + next.w / 2 - this.cam, TOP - 30, '📏 착지 지점 보기 ×3', '#fde68a', 14); this.sound('power'); }
     this.addScore(pts);
     this.updateInfo();
@@ -300,6 +311,10 @@ export default class Bridge extends GameBase {
       if (p.move) {
         ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.font = '700 11px system-ui'; ctx.textAlign = 'center';
         ctx.fillText('◀ ▶', x + p.w / 2, TOP + 22); ctx.textAlign = 'start';
+      }
+      if (p.feather) {
+        ctx.font = `${16 + Math.sin(now / 200) * 1.5}px system-ui`; ctx.textAlign = 'center';
+        ctx.fillText('🪶', x + p.w / 2, TOP - 8); ctx.textAlign = 'start';
       }
       if (p.ruler) {
         ctx.font = `${16 + Math.sin(now / 200) * 1.5}px system-ui`; ctx.textAlign = 'center';
@@ -391,6 +406,7 @@ export default class Bridge extends GameBase {
     ctx.fillStyle = 'rgba(0,0,0,.18)';
     if (!h.air && this.phase !== 'drop') { ctx.beginPath(); ctx.ellipse(0, bob, 11, 3, 0, 0, Math.PI * 2); ctx.fill(); }
     this.paintSkin(ctx, SKINS[this.skin].id, walking ? Math.sin(h.walkT * 16) * 3 : 0);
+    if (this.saved && this.phase === 'walk') { ctx.font = '16px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🪶', 0, -36 + Math.sin(performance.now() / 120) * 2); ctx.textAlign = 'start'; }
     ctx.restore();
   }
 

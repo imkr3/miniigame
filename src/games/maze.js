@@ -86,10 +86,12 @@ export default class Maze extends GameBase {
     id: 'maze',
     title: '미로 추격',
     description: '슬라임을 움직여 점을 모두 모으세요. 큰 점을 먹으면 잠시 박쥐를 잡을 수 있어요. 박쥐마다 쫓는 방식이 달라요. 3라운드부터 순간이동하는 초록 박쥐 등장! 양옆 터널로 빠져나갈 수 있어요!',
-    controls: '방향키 / WASD (미리 눌러두면 갈림길에서 꺾어요)',
-    touchControls: '화면을 밀어서 방향 전환 (또는 아래 방향 버튼)',
+    controls: '방향키 / WASD (미리 눌러두면 갈림길에서 꺾어요) · Space 대시',
+    touchControls: '화면을 밀어서 방향 전환 (또는 아래 방향 버튼) · 탭/대시 버튼 = 대시',
   };
 
+  static pad = { left: 'dpad', buttons: [{ action: 'action', label: '대시', primary: true }] };
+  static actionLabels = { action: '대시 (8초마다)' };
   static settings = [
     { id: 'speed', label: '게임 속도', type: 'select', default: 'normal',
       options: [['slow', '느림'], ['normal', '보통'], ['fast', '빠름']], tip: '다음 판(또는 목숨을 잃은 뒤)부터 적용' },
@@ -101,6 +103,7 @@ export default class Maze extends GameBase {
 
   init() {
     this.lives = 3;
+    this.dashT = 0; this.dashCd = 0;
     this.round = 1;
     this.nextLife = EXTRA_LIFE;
     this.setupRound();
@@ -170,7 +173,7 @@ export default class Maze extends GameBase {
     this.updateInfo();
   }
 
-  updateInfo() { this.setInfo(`목숨 ${'●'.repeat(this.lives)} · 라운드 ${this.round}`); }
+  updateInfo() { this.setInfo(`목숨 ${'●'.repeat(this.lives)} · 라운드 ${this.round} · ${this.dashCd > 0 ? '대시 충전 중' : '⚡대시 OK'}`); }
 
   /** 순간이동 박쥐: 일정 시간마다 플레이어 근처 빈 칸을 골라 1초 예고 후 그 자리로 */
   updateWarp(c, dt) {
@@ -200,6 +203,7 @@ export default class Maze extends GameBase {
   get scatter() { return this.modeT % (SCATTER + CHASE) < SCATTER; }
 
   onAction(action) {
+    if (action === 'action') return this.dash();
     const d = DIRS[action];
     if (!d) return;
     const p = this.player;
@@ -240,6 +244,16 @@ export default class Maze extends GameBase {
   }
 
   // 타일 단위 이동 + 타일 사이 보간(t)
+  /** 대시: 1초 동안 1.7배 빠르게 (8초마다) */
+  dash() {
+    if (this.dashCd > 0 || this.freeze > 0 || this.dying > 0) return;
+    this.dashT = 1; this.dashCd = 8;
+    this.sound('jump');
+    const p = this.player;
+    this.burst((p.x + 0.5) * CELL, (p.y + 0.5) * CELL, { color: '#86efac', count: 10, speed: 90, life: 0.35 });
+    this.updateInfo();
+  }
+
   move(e, dt, choose, onArrive) {
     if (isZero(e.dir)) { choose(e); if (isZero(e.dir)) return; }
     e.t += e.speed * dt;
@@ -306,7 +320,9 @@ export default class Maze extends GameBase {
       this.floatText(this.width / 2, this.height / 2, '목숨 +1!', '#86efac', 22);
     }
 
-    this.move(this.player, dt, (p) => this.choosePlayerDir(p), (p) => this.eatAt(p));
+    if (this.dashT > 0) this.dashT -= dt;
+    if (this.dashCd > 0 && (this.dashCd -= dt) <= 0) { this.updateInfo(); this.floatText((this.player.x + 0.5) * CELL, this.player.y * CELL, '대시 준비!', '#86efac', 12); }
+    this.move(this.player, dt * (this.dashT > 0 ? 1.7 : 1), (p) => this.choosePlayerDir(p), (p) => this.eatAt(p));
     if (this.bonus) {
       this.bonus.t -= dt;
       const pl = this.player;
@@ -455,6 +471,13 @@ export default class Maze extends GameBase {
     const pp = this.pos(pl);
     const moving = !isZero(pl.dir) && this.state === 'playing' && this.freeze <= 0;
     const life = this.dying > 0 ? Math.max(0, this.dying - 0.3) / 0.8 : 1;
+    if (this.dashT > 0) { // 대시 잔상
+      const d = pl.dir;
+      for (let k = 3; k >= 1; k--) {
+        ctx.fillStyle = `rgba(134,239,172,${0.12 * (4 - k)})`;
+        ctx.beginPath(); ctx.arc((pp.x + 0.5 - d.x * k * 0.35) * CELL, (pp.y + 0.5 - d.y * k * 0.35) * CELL, CELL * 0.36, 0, Math.PI * 2); ctx.fill();
+      }
+    }
     this.drawSlime(ctx, (pp.x + 0.5) * CELL, (pp.y + 0.5) * CELL, isZero(pl.dir) ? DIRS.down : pl.dir, moving ? now * 12 : now * 3, life);
 
     // 순간이동 예고: 초록 소용돌이

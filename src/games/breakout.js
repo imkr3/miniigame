@@ -36,6 +36,7 @@ const POWERS = {
   laser:  { label: 'L', color: '#fb923c', text: '레이저! (발사 버튼)', weight: 2.5, time: 9 },
   fire:   { label: 'F', color: '#ef4444', text: '불공! 벽돌 관통', weight: 2, time: 7 },
   catch:  { label: 'C', color: '#a78bfa', text: '캐치! 공을 잡아요', weight: 2, time: 12 },
+  homing: { label: 'G', color: '#4ade80', text: '유도 공! 벽돌로 휘어 감', weight: 1.8, time: 9 },
   barrier:{ label: 'B', color: '#38bdf8', text: '바닥 방어막! (3번)', weight: 1.5 },
   life:   { label: '♥', color: '#f87171', text: '목숨 +1', weight: 1 },
   shrink: { label: '−', color: '#64748b', text: '패들 축소…', weight: 1.5, time: 8, bad: true },
@@ -440,6 +441,24 @@ export default class Breakout extends GameBase {
   // ---------------- 공 ----------------
   step(b, dt) {
     const p = this.paddle;
+    // 유도 공: 위로 날아갈 때 가장 가까운 벽돌 쪽으로 조금씩 휨 (속력은 그대로)
+    if (this.active('homing') && b.vy < 0) {
+      let best = null, bd = Infinity;
+      for (const k of this.bricks) {
+        if (k.kind === 'metal') continue;
+        const d = (k.x + k.w / 2 - b.x) ** 2 + (k.y + k.h / 2 - b.y) ** 2;
+        if (d < bd) { bd = d; best = k; }
+      }
+      const tgt = best ?? (this.boss ? { x: this.boss.x, y: this.boss.y, w: this.boss.w, h: this.boss.h } : null);
+      if (tgt) {
+        const sp = Math.hypot(b.vx, b.vy), a = Math.atan2(b.vy, b.vx);
+        const want = Math.atan2(tgt.y + tgt.h / 2 - b.y, tgt.x + tgt.w / 2 - b.x);
+        let d = Math.atan2(Math.sin(want - a), Math.cos(want - a));
+        d = clamp(d, -2.2 * dt, 2.2 * dt);
+        const na = clamp(a + d, -Math.PI + 0.25, -0.25); // 너무 눕지 않게
+        b.vx = Math.cos(na) * sp; b.vy = Math.sin(na) * sp;
+      }
+    }
     b.x += b.vx * dt;
     if (b.x < BALL_R || b.x > W - BALL_R) {
       b.vx *= -1; b.x = clamp(b.x, BALL_R, W - BALL_R); this.sound('bounce');
@@ -719,7 +738,7 @@ export default class Breakout extends GameBase {
 
   drawBalls(ctx) {
     const fire = this.active('fire'), slow = this.active('slow');
-    const tc = fire ? '#fb923c' : slow ? '#bef264' : '#93c5fd';
+    const tc = fire ? '#fb923c' : this.active('homing') ? '#4ade80' : slow ? '#bef264' : '#93c5fd';
     for (const b of this.balls ?? []) {
       b.trail.forEach((t, i) => {
         ctx.globalAlpha = (i / b.trail.length) * (fire ? 0.6 : 0.3);

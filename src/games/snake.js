@@ -58,6 +58,7 @@ export default class Snake extends GameBase {
     this.rocks = [];
     this.food = null;
     this.portals = null;
+    this.feast = null;
     this.stageMode = this.cfg.mode === 'stage';
     this.waitT = 0; this.banner = null;
     if (this.stageMode) {
@@ -99,7 +100,17 @@ export default class Snake extends GameBase {
     return this.snake.some((s) => s.x === x && s.y === y) || this.rocks.some((r) => r.x === x && r.y === y)
       || (this.food && this.food.x === x && this.food.y === y) || (this.bonus && this.bonus.x === x && this.bonus.y === y)
       || (this.item && this.item.x === x && this.item.y === y)
+      || (this.feast?.items.some((f) => f.x === x && f.y === y) ?? false)
       || (this.portals?.some((p) => p.x === x && p.y === y) ?? false);
+  }
+
+  startFeast() {
+    const items = [];
+    for (let i = 0; i < 6; i++) { const c = this.freeCell(3); if (c) { items.push(c); this.feast = { items, got: 0, t: 6 }; } }
+    if (!items.length) return;
+    this.feast = { items, got: 0, t: 6 };
+    this.floatText(W / 2, 40, '🍒 먹이 폭풍! (6초)', '#f9a8d4', 16);
+    this.sound('power');
   }
 
   /** 포털 한 쌍을 서로 멀리, 벽에서 한 칸 이상 떨어진 곳에 둔다 */
@@ -149,6 +160,7 @@ export default class Snake extends GameBase {
     if (this.banner && (this.banner.t -= dt) <= 0) this.banner = null;
     if (this.waitT > 0) { this.waitT -= dt; this.timer = 0; return; } // 스테이지 시작 전 잠깐 멈춤
     if (this.bonus && (this.bonus.t -= dt) <= 0) this.bonus = null;
+    if (this.feast && (this.feast.t -= dt) <= 0) this.feast = null;
     if (this.item && (this.item.t -= dt) <= 0) this.item = null;
     if (this.slowT > 0 && (this.slowT -= dt) <= 0) this.updateInfo();
     if (this.combo && (this.comboT -= dt) <= 0) { this.combo = 0; this.updateInfo(); }
@@ -177,7 +189,9 @@ export default class Snake extends GameBase {
       this.sound('rotate');
     }
     const eatFood = at(this.food);
-    const body = eatFood ? this.snake : this.snake.slice(0, -1); // 꼬리는 이번 턴에 빠짐
+    const feastIdx = this.feast ? this.feast.items.findIndex(at) : -1;
+    const grow = eatFood || feastIdx >= 0;
+    const body = grow ? this.snake : this.snake.slice(0, -1); // 꼬리는 이번 턴에 빠짐
     if ((out && !this.cfg.wrap) || body.some((s) => s.x === head.x && s.y === head.y) || this.rocks.some(at)) {
       this.shake(8);
       this.burst((this.snake[0].x + 0.5) * CELL, (this.snake[0].y + 0.5) * CELL, { color: '#4ade80', count: 24, speed: 180 });
@@ -214,6 +228,17 @@ export default class Snake extends GameBase {
       if (this.eaten % 7 === 3 && !this.item) { const c = this.freeCell(); if (c) this.item = { ...c, t: ITEM_TIME, kind: Math.random() < 0.5 ? 'ice' : 'cut' }; }
       if (this.cfg.rocks && !this.stageMode && this.eaten % 4 === 0) this.addRock();
       if (this.portals && this.eaten % 10 === 0) this.movePortals();
+      // 먹이 폭풍: 15개마다 6초 동안 작은 먹이가 잔뜩 (클래식 모드)
+      if (!this.stageMode && this.eaten % 15 === 0) this.startFeast();
+    } else if (feastIdx >= 0) {
+      this.feast.items.splice(feastIdx, 1);
+      this.feast.got++;
+      const pts = 15 + this.feast.got * 5;
+      this.addScore(pts);
+      this.floatText(cx, cy - 8, `+${pts}`, '#fca5a5', 12);
+      this.burst(cx, cy, { color: '#f472b6', count: 6, speed: 80, life: 0.3 });
+      sfx.tone(700 + this.feast.got * 40, 1100 + this.feast.got * 40, 0.05, 0.04);
+      if (!this.feast.items.length) { this.addScore(100); this.floatText(W / 2, 40, '폭풍 싹쓸이! +100', '#fde68a', 16); this.sound('bonus'); this.feast = null; }
     } else {
       this.snake.pop();
     }
@@ -286,6 +311,15 @@ export default class Snake extends GameBase {
       ctx.strokeStyle = '#78350f'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(fx, fy - fr + 1); ctx.lineTo(fx + 1, fy - fr - 3); ctx.stroke();
       ctx.fillStyle = '#4ade80'; ctx.beginPath(); ctx.ellipse(fx + 4, fy - fr - 2, 3.5, 1.8, -0.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.beginPath(); ctx.arc(fx - fr * 0.35, fy - fr * 0.35, 1.8, 0, Math.PI * 2); ctx.fill();
+    }
+    if (this.feast) { // 먹이 폭풍: 작은 체리
+      const blink = this.feast.t < 1.5 && Math.floor(this.feast.t * 8) % 2 === 0;
+      if (!blink) for (const f of this.feast.items) {
+        const fx = (f.x + 0.5) * CELL, fy = (f.y + 0.5) * CELL + 2;
+        ctx.strokeStyle = '#65a30d'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(fx - 3, fy - 1); ctx.lineTo(fx, fy - 8); ctx.lineTo(fx + 3, fy - 1); ctx.stroke();
+        ctx.fillStyle = '#f43f5e';
+        ctx.beginPath(); ctx.arc(fx - 3, fy, 3.4, 0, Math.PI * 2); ctx.arc(fx + 3, fy, 3.4, 0, Math.PI * 2); ctx.fill();
+      }
     }
     if (this.bonus && !(this.bonus.t < 2 && Math.floor(this.bonus.t * 8) % 2 === 0)) this.drawStar(ctx, this.bonus, '#facc15', pulse);
     if (this.item && !(this.item.t < 2 && Math.floor(this.item.t * 8) % 2 === 0)) {

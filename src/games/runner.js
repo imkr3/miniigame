@@ -48,6 +48,16 @@ const AUGMENTS = [
   { id: 'w_hammer', icon: '🔨', name: '무기: 망치', desc: '느리지만 넓고 강한 공격 (무기 교체로 전환)', max: 1, weight: 2, cond: (g) => !has(g, 'hammer'), apply: (g) => { g.weapons.push('hammer'); g.weapon = 'hammer'; } },
 ];
 
+// 상점 (보스를 잡은 뒤 다음 스테이지 시작 때): 코인으로 구매
+const SHOP = [
+  { id: 's_heal', icon: '🍖', name: '고기 한 접시', desc: '체력 2 회복', price: 15, cond: (g) => g.p.hp < g.p.maxHp, apply: (g) => { g.p.hp = Math.min(g.p.maxHp, g.p.hp + 2); } },
+  { id: 's_hp', icon: '❤️', name: '튼튼한 심장', desc: '최대 체력 +1 (체력도 +1)', price: 45, apply: (g) => { g.p.maxHp++; g.p.hp++; } },
+  { id: 's_aug', icon: '🎁', name: '수상한 상자', desc: '무작위 증강 하나를 얻음', price: 35, apply: (g) => g.randomAugment() },
+  { id: 's_shield', icon: '🛡️', name: '임시 방패', desc: '이번 스테이지 동안 피해 1번 막기', price: 20, apply: (g) => { g.p.shield++; } },
+  { id: 's_dmg', icon: '🗡️', name: '숫돌', desc: '공격 피해 +15%', price: 30, apply: (g) => { g.S.dmgMul += 0.15; } },
+];
+const SKIP = { id: 's_skip', icon: '🚪', name: '그냥 지나가기', desc: '코인을 아껴 둔다', price: 0, apply: () => {} };
+
 const DIFFICULTY = {
   easy:   { hp: 7, enemyHp: 0.75, label: '쉬움' },
   normal: { hp: 5, enemyHp: 1, label: '보통' },
@@ -65,12 +75,12 @@ export default class Runner extends GameBase {
   static bindings = {
     left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'],
     action: ['Space', 'KeyZ'], attack: ['KeyX', 'KeyJ'], dash: ['KeyC', 'KeyK'], run: ['ShiftLeft', 'ShiftRight'],
-    swap: ['KeyQ', 'KeyE'], pick1: ['Digit1'], pick2: ['Digit2'], pick3: ['Digit3'],
+    swap: ['KeyQ', 'KeyE'], pick1: ['Digit1'], pick2: ['Digit2'], pick3: ['Digit3'], pick4: ['Digit4'],
   };
   static actionLabels = {
     left: '왼쪽', right: '오른쪽', up: '점프 (보조)', down: '아래 (발판 내려가기)', action: '점프 / 시작',
     attack: '공격', dash: '대쉬', run: '달리기 (누르는 동안)', swap: '무기 교체',
-    pick1: '증강 1번', pick2: '증강 2번', pick3: '증강 3번',
+    pick1: '증강 1번', pick2: '증강 2번', pick3: '증강 3번', pick4: '상점 4번',
   };
   static settings = [
     { id: 'difficulty', label: '난이도', type: 'select', default: 'normal',
@@ -147,6 +157,8 @@ export default class Runner extends GameBase {
     this.banner = boss
       ? { text: `스테이지 ${this.stage}`, sub: `⚠ ${ENEMIES[bossType].name} 등장!`, t: 2.2 }
       : { text: `스테이지 ${this.stage} - ${this.B.name}`, sub: this.B.sub, t: 2.4 };
+    // 보스를 잡은 다음 스테이지 시작 때 상점
+    this.pendingShop = !boss && this.stage > 1 && (this.stage - 1) % 3 === 0 ? 1.2 : 0;
     this.updateInfo();
   }
 
@@ -417,7 +429,7 @@ export default class Runner extends GameBase {
     if (ch.t < 0.35) return; // 연타로 실수 선택 방지
     if (action === 'left') ch.cursor = (ch.cursor + ch.cards.length - 1) % ch.cards.length;
     else if (action === 'right') ch.cursor = (ch.cursor + 1) % ch.cards.length;
-    else if (/^pick[123]$/.test(action)) { const i = Number(action.slice(4)) - 1; if (i < ch.cards.length) this.pickAugment(i); }
+    else if (/^pick[1-4]$/.test(action)) { const i = Number(action.slice(4)) - 1; if (i < ch.cards.length) this.pickAugment(i); }
     else if (action === 'action' || action === 'attack') {
       // 탭/클릭이면 누른 카드, 키보드면 선택된 카드
       if (performance.now() - (this.pointerStamp ?? 0) < 700) {
@@ -429,16 +441,44 @@ export default class Runner extends GameBase {
   }
 
   cardRects() {
-    const n = this.choosing.cards.length, cw = 170, ch = 196, gap = 18;
+    const n = this.choosing.cards.length, cw = n > 3 ? 140 : 170, ch = 196, gap = n > 3 ? 12 : 18;
     const x0 = (W - (n * cw + (n - 1) * gap)) / 2;
     return this.choosing.cards.map((_, i) => ({ x: x0 + i * (cw + gap), y: 82, w: cw, h: ch }));
   }
 
   cardAt(x, y) { return this.cardRects().findIndex((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h); }
 
+  /** 상점 열기: 물건 3개 + 그냥 지나가기 */
+  offerShop() {
+    const pool = SHOP.filter((it) => !it.cond || it.cond(this)).sort(() => Math.random() - 0.5).slice(0, 3);
+    this.choosing = { cards: [...pool, SKIP], cursor: 0, source: 'shop', t: 0 };
+    this.keys.clear();
+    this.sound('bonus');
+  }
+
+  /** 조건에 맞는 증강 하나를 무작위로 얻음 */
+  randomAugment() {
+    const pool = AUGMENTS.filter((a) => (this.augs[a.id] ?? 0) < a.max && (!a.cond || a.cond(this)));
+    if (!pool.length) return;
+    const a = pool[Math.floor(Math.random() * pool.length)];
+    a.apply(this);
+    this.augs[a.id] = (this.augs[a.id] ?? 0) + 1;
+    this.augOrder.push(a.icon);
+    this.floatText(this.p.x + 8, this.p.y - 28, `${a.icon} ${a.name}`, '#fde68a', 14);
+  }
+
   pickAugment(i) {
     const a = this.choosing.cards[i];
     const src = this.choosing.source;
+    if (src === 'shop') {
+      if (a.price > this.coinCount) { this.sound('hit'); this.floatText(W / 2, 70, '코인이 부족해요', '#fca5a5', 14); return; }
+      this.choosing = null;
+      this.coinCount -= a.price;
+      a.apply(this);
+      if (a.price) { this.sound('levelup'); this.floatText(this.p.x + 8, this.p.y - 12, a.name, '#fde68a', 15); }
+      this.updateInfo();
+      return;
+    }
     this.choosing = null;
     a.apply(this);
     this.augs[a.id] = (this.augs[a.id] ?? 0) + 1;
@@ -453,6 +493,7 @@ export default class Runner extends GameBase {
   update(dt) {
     if (this.banner && (this.banner.t -= dt) <= 0) this.banner = null;
     if (this.pendingAug > 0 && (this.pendingAug -= dt) <= 0) this.offerAugments('boss');
+    if (this.pendingShop > 0 && !this.choosing && (this.pendingShop -= dt) <= 0) this.offerShop();
     if (this.choosing) {
       this.choosing.t += dt;
       if (this.pointer.type === 'mouse' && this.pointer.moved) {
@@ -983,7 +1024,8 @@ export default class Runner extends GameBase {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fde68a';
     ctx.font = '900 22px system-ui, sans-serif';
-    ctx.fillText(ch.source === 'boss' ? '보스 보상 - 증강 선택' : '보물상자 - 증강 선택', W / 2, 52);
+    const shop = ch.source === 'shop';
+    ctx.fillText(shop ? `🛒 떠돌이 상인 - 보유 🪙${this.coinCount}` : ch.source === 'boss' ? '보스 보상 - 증강 선택' : '보물상자 - 증강 선택', W / 2, 52);
     this.cardRects().forEach((r, i) => {
       const a = ch.cards[i], sel = i === ch.cursor;
       const lift = sel ? -6 : 0;
@@ -1001,12 +1043,16 @@ export default class Runner extends GameBase {
       ctx.fillStyle = '#cbd5e1';
       this.wrapText(ctx, a.desc, r.w - 24).forEach((line, k) => ctx.fillText(line, r.x + r.w / 2, r.y + 124 + k * 17 + lift));
       const lv = this.augs[a.id] ?? 0;
-      if (lv) { ctx.fillStyle = '#94a3b8'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillText(`보유 ${lv}`, r.x + r.w / 2, r.y + r.h - 12 + lift); }
+      if (shop && a.price) {
+        const ok = a.price <= this.coinCount;
+        ctx.fillStyle = ok ? '#fde047' : '#f87171'; ctx.font = '800 14px system-ui, sans-serif';
+        ctx.fillText(`🪙 ${a.price}`, r.x + r.w / 2, r.y + r.h - 14 + lift);
+      } else if (lv) { ctx.fillStyle = '#94a3b8'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillText(`보유 ${lv}`, r.x + r.w / 2, r.y + r.h - 12 + lift); }
       if (!this.touchMode) { ctx.fillStyle = '#64748b'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillText(`[${i + 1}]`, r.x + 18, r.y + 20 + lift); }
     });
     ctx.fillStyle = '#94a3b8';
     ctx.font = '600 12px system-ui, sans-serif';
-    ctx.fillText(this.touchMode ? '카드를 탭해서 선택' : '←→ 고르기 · Space/X 선택 · 숫자키 1~3 · 클릭', W / 2, 312);
+    ctx.fillText(this.touchMode ? '카드를 탭해서 선택' : `←→ 고르기 · Space/X 선택 · 숫자키 1~${ch.cards.length} · 클릭`, W / 2, 312);
     ctx.textAlign = 'start';
   }
 

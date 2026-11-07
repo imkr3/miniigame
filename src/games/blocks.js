@@ -118,6 +118,16 @@ const LOCK_RESETS = 15;
 
 const rotateCW = (m) => m[0].map((_, i) => m.map((row) => row[i]).reverse());
 const rotateCCW = (m) => m[0].map((_, i) => m.map((row) => row[row.length - 1 - i]));
+// 마라톤 미션: 하나씩 주어지고, 해내면 보너스 (레벨 × 500)
+const MISSIONS = [
+  { text: '2줄 한 번에', test: (c) => c.n === 2 },
+  { text: '3줄 한 번에', test: (c) => c.n === 3 },
+  { text: '4줄 한 번에', test: (c) => c.n === 4 },
+  { text: 'T-스핀으로 줄 지우기', test: (c) => c.spin?.name === 'T' && c.n > 0 },
+  { text: 'T 말고 다른 블록 스핀', test: (c) => c.spin && c.spin.name !== 'T' && c.n > 0, cond: (g) => g.cfg.spin === 'all' },
+  { text: '3콤보 이상', test: (c) => c.combo >= 3 },
+  { text: 'B2B 이어가기', test: (c) => c.b2b >= 1 },
+];
 const SPRINT_LINES = 40, ULTRA_TIME = 120, DIG_ROWS = 10;
 const fmtCs = (cs) => `${Math.floor(cs / 6000)}:${String(Math.floor(cs / 100) % 60).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`;
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -342,6 +352,8 @@ export default class Blocks extends GameBase {
     else if (this.mode === 'dig') this.setRecord('blocks-dig', { lower: true, fmt: fmtCs });
     else this.setRecord('blocks');
     this.digDone = false;
+    this.mission = null; this.missionsDone = 0;
+    if (this.mode === 'marathon') this.newMission();
     if (this.mode === 'dig') { // 바닥에 구멍 하나씩 뚫린 쓰레기 줄 (구멍 위치가 계속 바뀜)
       let hole = -1;
       for (let i = 0; i < DIG_ROWS; i++) {
@@ -493,6 +505,14 @@ export default class Blocks extends GameBase {
       this.combo = -1;
     }
     let gained = Math.round(base * this.level) + Math.max(0, this.combo) * 50 * this.level;
+    if (this.mission && this.mission.test({ n, spin, combo: this.combo, b2b: this.b2b })) {
+      const bonus = 500 * this.level;
+      gained += bonus;
+      this.missionsDone++;
+      this.floatText(BW / 2, ROWS * CELL / 2 - 40, `🎯 미션 성공! +${bonus}`, '#86efac', 18);
+      this.sound('levelup');
+      this.newMission();
+    }
 
     const spinText = spin ? `${spin.name}-스핀${spin.mini ? ' 미니' : ''}` : '';
     const title = [spinText, CLEAR_NAME[n]].filter(Boolean).join(' ');
@@ -581,16 +601,22 @@ export default class Blocks extends GameBase {
     this.spawn();
   }
 
+  newMission() {
+    const pool = MISSIONS.filter((m) => m !== this.mission && (!m.cond || m.cond(this)));
+    this.mission = pool[Math.floor(Math.random() * pool.length)];
+    this.updateInfo?.();
+  }
+
   statsText() {
     const s = this.stats;
-    return `블록 ${s.pieces}개 · ${this.lines}줄 · 스핀 ${s.spins}회 · 최대 콤보 ${Math.max(0, s.maxCombo)} · ${fmtTime(this.time)} · 초당 ${(s.pieces / Math.max(1, this.time)).toFixed(2)}블록`;
+    return `블록 ${s.pieces}개 · ${this.lines}줄 · 스핀 ${s.spins}회 · 최대 콤보 ${Math.max(0, s.maxCombo)} · ${fmtTime(this.time)} · 초당 ${(s.pieces / Math.max(1, this.time)).toFixed(2)}블록${this.missionsDone ? ` · 미션 ${this.missionsDone}개` : ''}`;
   }
 
   updateInfo() {
     if (this.mode === 'sprint') this.setInfo(`남은 ${Math.max(0, SPRINT_LINES - this.lines)}줄 · ${fmtCs(Math.round(this.time * 100))}`);
     else if (this.mode === 'dig') this.setInfo(`남은 쓰레기 ${this.board.filter((r) => r.includes(GARBAGE)).length}줄 · ${fmtCs(Math.round(this.time * 100))}`);
     else if (this.mode === 'ultra') this.setInfo(`남은 시간 ${fmtTime(Math.max(0, ULTRA_TIME - this.time))} · 레벨 ${this.level}`);
-    else this.setInfo(`레벨 ${this.level} · ${this.lines}줄`);
+    else this.setInfo(`레벨 ${this.level} · ${this.lines}줄${this.mission ? ` · 🎯 ${this.mission.text}` : ''}`);
   }
 
   /** 한 칸 떨어지는 데 걸리는 시간(초). 레벨이 오를수록 가파르게 빨라지고 15레벨 무렵엔 거의 즉시 낙하 */
