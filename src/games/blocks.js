@@ -1,4 +1,5 @@
 import { GameBase, roundRect } from '../engine.js';
+import { sfx } from '../sfx.js';
 
 // 낙하 블록 퍼즐
 // - 회전: SRS 방식 벽차기(킥) + 180° 회전 → T/J/L/S/Z/I 스핀이 자연스럽게 들어감
@@ -547,7 +548,8 @@ export default class Blocks extends GameBase {
       this.level = newLevel;
       this.sound('levelup');
       this.floatText(BW / 2, ROWS * CELL / 2 + 40, `레벨 ${this.level}`, '#93c5fd', 22);
-    } else this.sound(spin || n >= 4 ? 'bonus' : 'clear');
+    } else if (spin || n >= 4) this.sound('bonus');
+    else { const k = Math.pow(1.06, Math.min(Math.max(0, this.combo), 10)); [523, 659, 784].forEach((f, i) => setTimeout(() => sfx.tone(f * k, f * k, 0.09, 0.045), i * 55)); } // 콤보가 이어질수록 높아짐
     this.updateInfo();
   }
 

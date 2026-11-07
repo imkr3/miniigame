@@ -1,4 +1,5 @@
 import { GameBase, DIRS, randInt, roundRect } from '../engine.js';
+import { sfx } from '../sfx.js';
 
 // 스네이크
 // - 부드러운 이동(칸 사이를 미끄러지듯), 빨리 연속으로 먹으면 콤보
@@ -205,7 +206,7 @@ export default class Snake extends GameBase {
       if (this.combo > 1) this.floatText(cx, cy - 8, `콤보 ×${this.combo} +${pts}`, '#fde68a', 13);
       this.interval = Math.max(0.06, this.interval * 0.975);
       this.burst(cx, cy, { color: '#fb923c', count: 10, speed: 100, life: 0.4 });
-      this.sound('eat');
+      sfx.tone(520 * Math.pow(1.06, Math.min(this.combo, 12) - 1), 880 * Math.pow(1.06, Math.min(this.combo, 12) - 1), 0.07, 0.05); // 콤보가 오를수록 높은 음
       this.vibrate(15);
       this.food = this.freeCell();
       if (!this.food) return this.gameOver('완벽한 클리어!');

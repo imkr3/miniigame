@@ -78,6 +78,11 @@ export const sfx = {
     eng.lp.frequency.setTargetAtTime(bright, now, 0.1);
     eng.g.gain.setTargetAtTime(vol, now, 0.05);
   },
+  /** 음높이를 직접 정하는 짧은 소리 (콤보가 오를수록 높아지는 효과음 등) */
+  tone(f0, f1 = f0, dur = 0.07, vol = 0.05, type = 'square') {
+    if (muted || !ctx || ctx.state !== 'running') return;
+    tone(type, f0, f1, dur, vol, ctx.currentTime);
+  },
   play(name) {
     const p = PRESETS[name];
     if (muted || !ctx || !p || ctx.state !== 'running') return;

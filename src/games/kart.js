@@ -650,7 +650,7 @@ export default class Kart extends GameBase {
     const boosting = r.boostT > 0;
     let maxS = st.maxSpeed * (r.rubber ?? 1);
     if (r.surface < 1 && !boosting && r.grounded) maxS *= r.surface; // 갓길·흙길·풀밭은 느림
-    if (boosting) maxS *= 1.3;
+    if (boosting) maxS *= st.boostMul ?? 1.3;
     if (r.gliding) {
       r.speed += (Math.max(24, Math.min(r.speed, maxS)) - r.speed) * dt * 0.5; // 활공 중엔 속도 유지
     } else if (inp.accel) {
@@ -680,7 +680,7 @@ export default class Kart extends GameBase {
     }
     if (r.drifting) {
       if (!inp.drift || r.speed < 8 || spinning || r.gliding) this.endDrift(r);
-      else if (r.grounded) r.driftT += dt * (1 + 0.6 * Math.max(0, steer * r.driftDir));
+      else if (r.grounded) r.driftT += dt * (st.driftRate ?? 1) * (1 + 0.6 * Math.max(0, steer * r.driftDir));
     }
 
     // 조향 (오른쪽 = 각도 감소). 빠를수록 덜 꺾임
@@ -984,7 +984,7 @@ export default class Kart extends GameBase {
     }
     let tx, tz;
     if (typeof r.zone === 'number') { // 지름길 위: 지름길을 따라감
-      const S = tr.shortcuts[r.zone].samples, q = S[Math.min(S.length - 1, (r.scIdx[r.zone] ?? 0) + Math.round(look / 2))];
+      const S = tr.shortcuts[r.zone].samples, q = S[Math.min(S.length - 1, (r.scIdx[r.zone] ?? 0) + Math.max(3, Math.round(look / 4)))]; // 좁은 길: 가까운 곳을 보고 따라감 (멀리 보면 모서리를 잘라 떨어짐)
       tx = q.x; tz = q.z;
     } else if (r.scPlan >= 0) {
       const sc = tr.shortcuts[r.scPlan];

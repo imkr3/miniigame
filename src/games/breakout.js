@@ -1,4 +1,5 @@
 import { GameBase, roundRect } from '../engine.js';
+import { sfx } from '../sfx.js';
 
 // 벽돌깨기
 // - 스테이지 디자인 8종 + 이후 무작위 대칭 생성, 5레벨마다 보스 벽돌
@@ -511,7 +512,7 @@ export default class Breakout extends GameBase {
     this.addScore(pts);
     if (this.combo >= 5 && this.combo % 5 === 0) this.floatText(k.x + k.w / 2, k.y, `${this.combo} 콤보!`, '#fde047', 15);
     this.burst(k.x + k.w / 2, k.y + k.h / 2, { color: k.color, count: 12, speed: 150, life: 0.5, gravity: 400 });
-    this.sound('brick');
+    { const f = 620 * Math.pow(1.045, Math.min(this.combo, 16)); sfx.tone(f * 1.4, f, 0.05, 0.045); } // 콤보 음계
     if (k.kind === 'item' || (Math.random() < DROP_CHANCE && this.bricks.length > 0)) {
       this.drops.push({ x: k.x + k.w / 2, y: k.y + k.h / 2, type: k.kind === 'item' ? pickPower() : pickPower() });
     }

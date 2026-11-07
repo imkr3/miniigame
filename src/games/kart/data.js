@@ -2,21 +2,21 @@
 // 능력치는 1~5 (캐릭터 + 카트 보정을 더해서 사용)
 
 export const CHARACTERS = [
-  { id: 'rabbit', name: '토토', animal: '토끼', emoji: '🐰', color: 0xf8fafc, accent: 0xf9a8d4, kartColor: 0xec4899, speed: 2, accel: 5, weight: 1, handling: 4 },
-  { id: 'bear',   name: '뭉치', animal: '곰',   emoji: '🐻', color: 0x92400e, accent: 0xfcd34d, kartColor: 0xb45309, speed: 5, accel: 2, weight: 5, handling: 2 },
-  { id: 'cat',    name: '냥냥', animal: '고양이', emoji: '🐱', color: 0xfb923c, accent: 0xfff7ed, kartColor: 0xf97316, speed: 3, accel: 4, weight: 2, handling: 5 },
-  { id: 'robot',  name: '볼트', animal: '로봇', emoji: '🤖', color: 0x94a3b8, accent: 0x38bdf8, kartColor: 0x475569, speed: 5, accel: 3, weight: 4, handling: 2 },
-  { id: 'frog',   name: '개굴', animal: '개구리', emoji: '🐸', color: 0x4ade80, accent: 0xfef9c3, kartColor: 0x16a34a, speed: 3, accel: 3, weight: 3, handling: 3 },
+  { id: 'rabbit', name: '토토', animal: '토끼', emoji: '🐰', color: 0xf8fafc, accent: 0xf9a8d4, kartColor: 0xec4899, speed: 2, accel: 5, weight: 2, handling: 4 },
+  { id: 'bear',   name: '뭉치', animal: '곰',   emoji: '🐻', color: 0x92400e, accent: 0xfcd34d, kartColor: 0xb45309, speed: 5, accel: 2, weight: 4, handling: 2 },
+  { id: 'cat',    name: '냥냥', animal: '고양이', emoji: '🐱', color: 0xfb923c, accent: 0xfff7ed, kartColor: 0xf97316, speed: 3, accel: 4, weight: 2, handling: 4 },
+  { id: 'robot',  name: '볼트', animal: '로봇', emoji: '🤖', color: 0x94a3b8, accent: 0x38bdf8, kartColor: 0x475569, speed: 4, accel: 3, weight: 4, handling: 2 },
+  { id: 'frog',   name: '개굴', animal: '개구리', emoji: '🐸', color: 0x4ade80, accent: 0xfef9c3, kartColor: 0x16a34a, speed: 3, accel: 3, weight: 3, handling: 4 },
   { id: 'penguin', name: '펭구', animal: '펭귄', emoji: '🐧', color: 0x1e293b, accent: 0xf8fafc, kartColor: 0x2563eb, speed: 4, accel: 3, weight: 3, handling: 3 },
-  { id: 'panda',  name: '죽순', animal: '판다', emoji: '🐼', color: 0xf8fafc, accent: 0x111827, kartColor: 0x111827, speed: 4, accel: 2, weight: 4, handling: 3 },
-  { id: 'duck',   name: '꽥이', animal: '오리', emoji: '🐥', color: 0xfde047, accent: 0xfb923c, kartColor: 0xeab308, speed: 2, accel: 5, weight: 1, handling: 5 },
+  { id: 'panda',  name: '죽순', animal: '판다', emoji: '🐼', color: 0xf8fafc, accent: 0x111827, kartColor: 0x111827, speed: 4, accel: 2, weight: 5, handling: 2 },
+  { id: 'duck',   name: '꽥이', animal: '오리', emoji: '🐥', color: 0xfde047, accent: 0xfb923c, kartColor: 0xeab308, speed: 2, accel: 4, weight: 2, handling: 5 },
 ];
 
 export const KARTS = [
   { id: 'classic', name: '클래식',    desc: '균형 잡힌 기본 카트', speed: 0, accel: 0, weight: 0, handling: 0 },
-  { id: 'sport',   name: '스피드스터', desc: '최고 속도↑ 가속·핸들링↓', speed: 2, accel: -1, weight: 0, handling: -1 },
+  { id: 'sport',   name: '스피드스터', desc: '최고 속도↑ 가속·핸들링↓', speed: 1, accel: -1, weight: 0, handling: -1 },
   { id: 'buggy',   name: '버기',      desc: '가속↑ 풀밭에서 덜 느려짐', speed: -1, accel: 2, weight: -1, handling: 1, offroad: true },
-  { id: 'tank',    name: '탱크',      desc: '무게↑ 부딪혀도 안 밀림', speed: 1, accel: -2, weight: 2, handling: -1 },
+  { id: 'tank',    name: '탱크',      desc: '무게↑ 부딪혀도 안 밀림', speed: 1, accel: -1, weight: 2, handling: -1 },
 ];
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -27,10 +27,13 @@ export function combineStats(ch, kart) {
   const raw = { speed: s('speed'), accel: s('accel'), weight: s('weight'), handling: s('handling') };
   return {
     raw,
-    maxSpeed: 26 + raw.speed * 0.8,     // m/s (최고 속도 차이는 작게)
-    accel: 6 + raw.accel * 2.1,         // m/s² (가속 차이는 크게 → 부딪히거나 맞은 뒤 회복이 빠름)
-    turn: 1.15 + raw.handling * 0.08,   // rad/s (예전보다 낮춰서 덜 휙휙 돌게)
+    maxSpeed: 27.4 + raw.speed * 0.45,  // m/s (최고 속도 차이는 작게)
+    accel: 6 + raw.accel * 2.4,         // m/s² (가속 차이는 크게 → 부딪히거나 맞은 뒤 회복이 빠름)
+    turn: 1.12 + raw.handling * 0.1,    // rad/s
     weight: raw.weight,
+    // 속도가 낮은 대신: 부스트(아이템·미니 터보)가 더 세고, 핸들링이 좋으면 드리프트 게이지가 빨리 참
+    boostMul: 1.26 + (7 - raw.speed) * 0.022,
+    driftRate: 0.8 + raw.handling * 0.07,
     offroad: kart.offroad ? 0.68 : 0.52, // 풀밭 최고 속도 배율
   };
 }

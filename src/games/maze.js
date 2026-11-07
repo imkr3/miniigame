@@ -146,7 +146,7 @@ export default class Maze extends GameBase {
       return out;
     };
     const [p] = find('P');
-    const speedUp = Math.min(1.3, 1 + (this.round - 1) * 0.05);
+    const speedUp = Math.min(1.2, 1 + (this.round - 1) * 0.04); // 최고 속도도 플레이어(4.3)보다 살짝 느리게
     const k = SPEEDS[this.cfg.speed] ?? 1;
     this.player = { ...p, dir: STOP, want: STOP, t: 0, speed: 4.3 * k };
     this.chasers = find('C').map((c, i) => ({

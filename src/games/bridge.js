@@ -1,4 +1,5 @@
 import { GameBase, roundRect } from '../engine.js';
+import { sfx } from '../sfx.js';
 
 // 다리 잇기: 누르고 있는 동안 막대가 자라고, 손을 떼면 막대가 앞으로 쓰러져 다리가 된다.
 // - 다리 끝이 다음 기둥 위에 닿으면 성공, 짧거나 길면 추락
@@ -163,7 +164,7 @@ export default class Bridge extends GameBase {
         const speed = this.d.grow * (1 + Math.min(0.35, this.count * 0.006));
         st.len = Math.min(H, st.len + speed * dt);
         this.growTick += speed * dt;
-        if (this.growTick > 28) { this.growTick = 0; this.sound('tick'); }
+        if (this.growTick > 28) { this.growTick = 0; const f = 260 + st.len * 1.6; sfx.tone(f, f, 0.025, 0.02); } // 막대가 길수록 높은 음
         if (release || st.len >= H) { this.phase = 'fall'; st.av = 0; }
         break;
       }
@@ -235,7 +236,7 @@ export default class Bridge extends GameBase {
       pts += Math.min(this.perfects, 5);
       this.floatText(next.x + next.w / 2 - this.cam, TOP - 40, this.perfects > 1 ? `퍼펙트 ×${this.perfects}! +${pts}` : `퍼펙트! +${pts}`, '#fca5a5', 16);
       this.burst(next.x + next.w / 2 - this.cam, TOP, { color: '#f87171', count: 18, speed: 150, life: 0.5 });
-      this.sound('bonus');
+      [784, 988, 1175].forEach((f, i) => setTimeout(() => sfx.tone(f * Math.pow(1.06, Math.min(this.perfects, 8) - 1), f * Math.pow(1.06, Math.min(this.perfects, 8) - 1), 0.08, 0.045), i * 55)); // 퍼펙트 연속일수록 높게
       this.vibrate(25);
     } else {
       this.perfects = 0;

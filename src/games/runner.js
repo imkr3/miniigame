@@ -165,7 +165,9 @@ export default class Runner extends GameBase {
 
   createEnemy(type, x, y) {
     const d = ENEMIES[type];
-    const hpMul = d.boss ? 1 : (1 + (this.stage - 1) * 0.15) * this.diff.enemyHp;
+    // 일반 적: 스테이지마다 체력 +12% (13스테이지에서 상한), 보스: 보스 3종을 한 바퀴 돌 때마다 +50%
+    const hpMul = d.boss ? (1 + Math.floor((this.stage - 1) / 9) * 0.5) * this.diff.enemyHp
+      : (1 + Math.min(this.stage - 1, 12) * 0.12) * this.diff.enemyHp;
     const e = {
       type, ...d, hp: Math.max(1, Math.round(d.hp * hpMul)), x, y, vx: 0, vy: 0, dir: Math.random() < 0.5 ? -1 : 1,
       flash: 0, kb: 0, t: rand(0, 2), state: 'patrol', onGround: false,
