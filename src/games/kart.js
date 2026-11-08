@@ -310,6 +310,7 @@ export default class Kart extends GameBase {
     }
     if (this.multi) this.leaveMulti();
     this.phase = 'select';
+    this.setMusic('kart');
     this.gp = null;
     this.mode = 'race';
     this.setRecord('kart');
@@ -331,6 +332,7 @@ export default class Kart extends GameBase {
   }
 
   startRace() {
+    this.setMusic(`kart-${this.track.def.id}`); // 트랙마다 전용 곡
     this.setMusicTempo(1);
     this.sound('start');
     this.clearDyn();
