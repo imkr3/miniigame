@@ -331,6 +331,7 @@ export default class Kart extends GameBase {
   }
 
   startRace() {
+    this.setMusicTempo(1);
     this.sound('start');
     this.clearDyn();
     this.preview = null;
@@ -818,6 +819,7 @@ export default class Kart extends GameBase {
         r.finished = true; r.finishTime = this.raceT;
       } else if (r.isPlayer) {
         this.msg = { text: lap === this.laps ? '마지막 랩!' : `랩 ${lap}`, t: 1.5 };
+        if (lap === this.laps) this.setMusicTempo(1.1); // 마지막 랩은 음악이 빨라짐
         this.sound('bonus');
       }
       if (r.isPlayer && this.ghostRec) {

@@ -5,6 +5,7 @@
 // - 효과음, 파티클·화면 흔들림·떠오르는 글자
 // 각 게임은 GameBase를 상속해서 init / update(dt) / draw(ctx) / onAction(action, repeat) 만 구현하면 된다.
 import { sfx } from './sfx.js';
+import { music } from './music.js';
 
 // 기본 키 배치 (액션 → 키 코드 목록). 게임은 static bindings 로 덮어쓰고, 사용자는 ⚙ 설정에서 바꿀 수 있다.
 const DEFAULT_BINDINGS = {
@@ -43,6 +44,7 @@ export function keyName(code) {
 
 // 모든 게임 공통 설정
 const GLOBAL_SETTINGS = [
+  { id: 'music', label: '배경 음악 볼륨', type: 'range', min: 0, max: 100, step: 10, default: 60, unit: '%', tip: '0이면 음악 끔 (효과음은 그대로)' },
   { id: 'vibrate', label: '진동 (모바일)', type: 'toggle', default: true },
   { id: 'shake', label: '화면 흔들림', type: 'toggle', default: true },
 ];
@@ -322,6 +324,7 @@ export class GameBase {
     if (this.state === 'over') return;
     this.state = 'over';
     this.keys.clear();
+    music.stopFor(this, 0.8);
     this._overAt = performance.now();
     // 멀티플레이 결과는 혼자 하기 기록(최고 점수·TOP 5)에 넣지 않음
     const value = this.recordValue ?? this.score, lower = this.recordLower, fmt = this.recordFmt;
@@ -349,16 +352,20 @@ export class GameBase {
     this.setScore(0);
     this.time = 0;
     this.fx = [];
+    this.musicId = undefined;
     this.init();
     this.state = 'playing';
     this._hideOverlay();
     this.sound('start');
+    this._playMusic();
+    music.setTempo(1);
     this._emit('start');
   }
   pause() {
     if (this.state !== 'playing') return;
     this.state = 'paused';
     this.keys.clear();
+    music.stopFor(this, 0.2);
     this._showOverlay('일시정지', '', 'resume');
     this._renderButtons();
     this._emit('pause');
@@ -369,6 +376,7 @@ export class GameBase {
     this._last = performance.now();
     this._hideOverlay();
     this._renderButtons();
+    this._playMusic();
     this._emit('resume');
   }
   togglePause() { this.state === 'playing' ? this.pause() : this.resume(); }
@@ -381,9 +389,19 @@ export class GameBase {
 
   /** 진행 중인 판을 버리고 새로 시작 */
   restart() { this.keys.clear(); this._emit('restart'); this.start(); }
-  toggleMute() { sfx.setMuted(!sfx.muted); this._renderButtons(); }
+  toggleMute() { sfx.setMuted(!sfx.muted); music.applyVolume(); this._renderButtons(); }
+  /** 배경 음악 바꾸기 (예: 보스 스테이지) */
+  setMusic(id) { this.musicId = id; if (this.state === 'playing') this._playMusic(); }
+  /** 배경 음악 빠르기 (1 = 원래 빠르기) */
+  setMusicTempo(t) { if (music.owner === this) music.setTempo(t); }
+  _playMusic() {
+    music.setVolume((this.cfg.music ?? 60) / 100);
+    if ((this.cfg.music ?? 60) <= 0) { music.stopFor(this); return; }
+    music.play(this.musicId ?? this.meta.id, this);
+  }
   destroy() {
     cancelAnimationFrame(this._raf);
+    music.stopFor(this, 0.2);
     this.onDestroy();
     this.net?.close();
     this._ro?.disconnect();
@@ -596,6 +614,11 @@ export class GameBase {
     const global = GLOBAL_SETTINGS.some((g) => g.id === id);
     const key = global ? 'miniigame:global' : this.settingsKey;
     saveJSON(key, { ...loadJSON(key, {}), [id]: v });
+    if (id === 'music') {
+      music.setVolume(v / 100);
+      if (v <= 0) music.stopFor(this);
+      else if (this.state === 'playing') this._playMusic();
+    }
     this.onSettingsChange(id);
   }
 

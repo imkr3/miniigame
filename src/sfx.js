@@ -45,6 +45,10 @@ function engineOff() { if (eng) eng.g.gain.setTargetAtTime(0, ctx.currentTime, 0
 
 export const sfx = {
   get muted() { return muted; },
+  /** AudioContext (배경 음악용, 첫 입력 전에는 null) */
+  get context() { return ctx; },
+  /** 오디오가 처음 켜졌을 때 부를 함수 (배경 음악 시작) */
+  onUnlock: null,
   setMuted(v) {
     muted = v;
     try { localStorage.setItem(KEY, v ? '1' : '0'); } catch { /* ignore */ }
@@ -54,7 +58,8 @@ export const sfx = {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     if (!ctx) ctx = new AC();
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state === 'suspended') ctx.resume().then(() => sfx.onUnlock?.()).catch(() => {});
+    else sfx.onUnlock?.();
   },
   /** @param {number} freq 기본 음높이(Hz) @param {number} vol 음량 @param {number} [bright] 필터 주파수(높을수록 거친 소리) */
   engine(freq, vol, bright = 700) {

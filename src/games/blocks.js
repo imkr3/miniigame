@@ -151,6 +151,7 @@ const MISSIONS = [
   { text: '3콤보 이상', test: (c) => c.combo >= 3 },
   { text: 'B2B 이어가기', test: (c) => c.b2b >= 1 },
 ];
+const BAG_OPTIONS = [['7bag', '7-가방 (기본)'], ['14bag', '14-가방'], ['7+1', '7+1 가방'], ['7+2', '7+2 가방'], ['pairs', '페어 (2종씩)'], ['classic', '클래식 (무작위·연속 방지)'], ['mayhem', '난장판 (완전 무작위)']];
 const SPRINT_LINES = 40, ULTRA_TIME = 120, DIG_ROWS = 10;
 const fmtCs = (cs) => `${Math.floor(cs / 6000)}:${String(Math.floor(cs / 100) % 60).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`;
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -180,6 +181,7 @@ export default class Blocks extends GameBase {
   static settings = [
     { id: 'mode', label: '모드', type: 'select', default: 'marathon',
       options: [['marathon', '마라톤 (끝까지)'], ['sprint', '스프린트 (40줄 최단 시간)'], ['ultra', '울트라 (2분 최고 점수)'], ['dig', '땅파기 (쓰레기 10줄 최단 시간)']], tip: '모드마다 기록이 따로 저장돼요. 새 게임부터 적용' },
+    { id: 'bag', label: '블록 순서 (가방)', type: 'select', default: '7bag', options: BAG_OPTIONS, tip: '7-가방: 7종이 한 번씩 섞여 나옴 (TETR.IO 기본). 기본이 아니면 기록이 따로 저장돼요. 새 게임부터 적용' },
     { id: 'skin', label: '블록 모양', type: 'select', default: 'classic', options: [['classic', '기본'], ['jewel', '보석'], ['pixel', '8비트'], ['candy', '사탕'], ['neon', '네온']] },
     { id: 'startLevel', label: '시작 레벨', type: 'range', min: 1, max: 20, default: 1, unit: '',
       tip: '높을수록 처음부터 빠르게 떨어짐 (점수도 레벨만큼 곱해짐). 새 게임부터 적용' },
@@ -215,7 +217,10 @@ export default class Blocks extends GameBase {
   // ---------------- 멀티플레이 (배틀) ----------------
   lobbyConfig() {
     return {
-      settings: [{ id: 'startLevel', label: '시작 레벨 (낙하 속도)', type: 'range', min: 1, max: 15, default: 3 }],
+      settings: [
+        { id: 'startLevel', label: '시작 레벨 (낙하 속도)', type: 'range', min: 1, max: 15, default: 3 },
+        { id: 'bag', label: '블록 순서 (가방)', type: 'select', default: '7bag', options: BAG_OPTIONS },
+      ],
       info: [],
     };
   }
@@ -366,15 +371,18 @@ export default class Blocks extends GameBase {
     this.countdown = this.multi ? 3 : 0;
     this.board = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
     this.bag = [];
+    this.lastPulled = -1;
+    this.bagKind = this.multi ? (this.multi.settings.bag ?? '7bag') : this.cfg.bag;
     this.queue = Array.from({ length: 5 }, () => this.pull());
     this.holdType = -1;
     this.canHold = true;
     this.lines = 0;
     this.mode = this.multi ? 'battle' : this.cfg.mode;
-    if (this.mode === 'sprint') this.setRecord('blocks-sprint', { lower: true, fmt: fmtCs });
-    else if (this.mode === 'ultra') this.setRecord('blocks-ultra');
-    else if (this.mode === 'dig') this.setRecord('blocks-dig', { lower: true, fmt: fmtCs });
-    else this.setRecord('blocks');
+    const bs = this.bagKind && this.bagKind !== '7bag' ? `-${this.bagKind}` : ''; // 가방 방식이 다르면 기록 따로
+    if (this.mode === 'sprint') this.setRecord(`blocks-sprint${bs}`, { lower: true, fmt: fmtCs });
+    else if (this.mode === 'ultra') this.setRecord(`blocks-ultra${bs}`);
+    else if (this.mode === 'dig') this.setRecord(`blocks-dig${bs}`, { lower: true, fmt: fmtCs });
+    else this.setRecord(`blocks${bs}`);
     this.digDone = false;
     this.mission = null; this.missionsDone = 0;
     if (this.mode === 'marathon') this.newMission();
@@ -401,12 +409,35 @@ export default class Blocks extends GameBase {
     this.updateInfo();
   }
 
-  // 7개를 섞어서 순서대로 꺼내는 방식 (같은 블록 편중 방지)
+  /**
+   * 다음 블록 뽑기 (TETR.IO 의 가방 방식들)
+   * - 7bag: 7종을 한 번씩 섞어서 순서대로 (기본, 같은 블록 가뭄 최대 12개)
+   * - 14bag: 7종을 두 번씩 넣어 섞음
+   * - 7+1 / 7+2: 7-가방에 무작위 블록 1·2개를 더 넣어 섞음
+   * - pairs: 서로 다른 블록 2종을 3개씩(총 6개) 섞음
+   * - classic: 완전 무작위, 바로 전과 같으면 한 번 다시 뽑음
+   * - mayhem: 완전 무작위 (난장판)
+   */
   pull() {
+    const rnd = (n) => Math.floor(this.rand() * n);
+    const kind = this.bagKind ?? '7bag';
+    if (kind === 'classic' || kind === 'mayhem') {
+      let t = rnd(7);
+      if (kind === 'classic' && t === this.lastPulled) t = rnd(7);
+      this.lastPulled = t;
+      return t;
+    }
     if (!this.bag.length) {
-      this.bag = [0, 1, 2, 3, 4, 5, 6];
+      const all = [0, 1, 2, 3, 4, 5, 6];
+      if (kind === '14bag') this.bag = [...all, ...all];
+      else if (kind === '7+1') this.bag = [...all, rnd(7)];
+      else if (kind === '7+2') this.bag = [...all, rnd(7), rnd(7)];
+      else if (kind === 'pairs') {
+        const a = rnd(7); let b = rnd(6); if (b >= a) b++;
+        this.bag = [a, a, a, b, b, b];
+      } else this.bag = all;
       for (let i = this.bag.length - 1; i > 0; i--) {
-        const j = Math.floor(this.rand() * (i + 1));
+        const j = rnd(i + 1);
         [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
       }
     }
@@ -601,6 +632,7 @@ export default class Blocks extends GameBase {
     const newLevel = this.startLevel + Math.floor(this.lines / this.cfg.linesPerLevel);
     if (newLevel > this.level) {
       this.level = newLevel;
+      this.setMusicTempo(1 + Math.min(this.level - 1, 12) * 0.025); // 레벨이 오를수록 음악도 빨라짐
       this.sound('levelup');
       this.floatText(BW / 2, ROWS * CELL / 2 + 40, `레벨 ${this.level}`, '#93c5fd', 22);
     } else if (spin || n >= 4) this.sound('bonus');

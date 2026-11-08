@@ -140,6 +140,7 @@ export default class Runner extends GameBase {
     const biome = biomeForStage(this.stage, this.biomeOrder);
     this.B = BIOMES[biome];
     const boss = this.stage % 3 === 0;
+    this.setMusic(boss ? 'runner-boss' : 'runner');
     const bossType = BOSS_ORDER[(this.stage / 3 - 1) % BOSS_ORDER.length];
     this.crumbles = new Map();
     const lv = boss ? generateBossArena(this, this.stage, biome, bossType) : generateLevel(this, this.stage, biome);
