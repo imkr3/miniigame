@@ -71,10 +71,33 @@ function paintCell(c, skin, s, color) {
 }
 // ---- 멀티플레이(배틀) ----
 const OPP_W = 156;                                     // 상대 보드 패널 폭
-const LINE_ATK = [0, 0, 1, 2, 4];                      // 일반 클리어 공격량
-const SPIN_ATK = [0, 2, 4, 6, 8];                      // 스핀
-const MINI_ATK = [0, 0, 1, 2, 2];                      // 스핀 미니
-const COMBO_ATK = [0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5];
+// ---- 대전 공격 규칙 (TETR.IO 테트라 리그 방식) ----
+// 기본 공격: 싱글 0 · 더블 1 · 트리플 2 · 쿼드 4 / T-스핀 싱글 2 · 더블 4 · 트리플 6 / T-스핀 미니 싱글 0 · 더블 1
+// T 이외 블록 스핀은 '미니' 취급 → 일반 줄 공격량이지만 B2B 는 이어짐
+const LINE_ATK = [0, 0, 1, 2, 4];
+const TSPIN_ATK = [0, 2, 4, 6, 6];
+const MINI_ATK = [0, 0, 1, 2, 4];
+const PC_ATK = 5;          // 퍼펙트 클리어(올 클리어) 추가 공격
+const SURGE_START = 4;     // B2B 가 이만큼 이어진 뒤 끊기면 서지 발동
+const GARBAGE_CAP = 8;     // 한 번 블록을 놓을 때 올라오는 쓰레기 줄 최대 수
+const GARBAGE_DELAY = 0.5; // 공격이 도착한 뒤 올라오기까지 시간(초)
+/**
+ * 공격량 계산
+ * - B2B(스핀·쿼드를 연속): 1단계 이상이면 +1
+ * - 콤보 배율: 기본 × (1 + 0.25 × 콤보), 기본이 0이면 ln(1 + 1.25 × 콤보) → 소수점 버림
+ * - 퍼펙트 클리어 +5
+ * @returns {number}
+ */
+export function attackFor({ n, spin, b2b, combo, perfect }) {
+  if (n <= 0) return 0;
+  let base = spin ? (spin.name === 'T' ? (spin.mini ? MINI_ATK[n] : TSPIN_ATK[n]) : MINI_ATK[n]) : LINE_ATK[n];
+  if (b2b >= 1) base += 1;
+  const c = Math.max(0, combo);
+  let atk = base > 0 ? base * (1 + 0.25 * c) : Math.log1p(1.25 * c);
+  atk = Math.floor(atk + 1e-9);
+  if (perfect) atk += PC_ATK;
+  return atk;
+}
 /** 같은 시드면 같은 블록 순서 (모두 공평하게) */
 function seededRandom(seed) {
   let a = seed >>> 0;
@@ -228,7 +251,7 @@ export default class Blocks extends GameBase {
     const o = m.opp.get(from);
     if (d.k === 'board' && o) { o.board = d.b; o.lines = d.l; o.incoming = d.g; }
     else if (d.k === 'atk' && !m.dead && !m.over) {
-      this.incoming.push({ n: d.n, t: 0.6, from });
+      this.incoming.push({ n: d.n, t: GARBAGE_DELAY, from });
       this.sound('hit');
       this.floatText(BW / 2, 40, `${o?.name ?? '?'} 님의 공격 ${d.n}줄!`, '#fca5a5', 14);
     } else if (d.k === 'dead') this.playerDied(from);
@@ -247,7 +270,7 @@ export default class Blocks extends GameBase {
 
   /** 받은 쓰레기 줄을 아래에서 밀어 올림 (구멍은 묶음마다 한 칸) */
   applyGarbage() {
-    let budget = 12;
+    let budget = GARBAGE_CAP;
     while (this.incoming.length && this.incoming[0].t <= 0 && budget > 0) {
       const g = this.incoming[0];
       const k = Math.min(g.n, budget);
@@ -337,6 +360,7 @@ export default class Blocks extends GameBase {
     }
     this.rand = this.multi ? seededRandom(this.multi.seed) : Math.random;
     this.incoming = [];
+    this.surgeReady = 0;
     this.overflow = false;
     this.sprintDone = false;
     this.countdown = this.multi ? 3 : 0;
@@ -498,7 +522,10 @@ export default class Blocks extends GameBase {
       if (hard) {
         this.b2b++;
         if (this.b2b > 0) { base *= 1.5; b2bText = `B2B ×${this.b2b}`; }
-      } else this.b2b = -1;
+      } else {
+        if (this.b2b >= SURGE_START) this.surgeReady = this.b2b; // 서지: 이번 클리어와 함께 발사
+        this.b2b = -1;
+      }
       this.combo++;
       this.stats.maxCombo = Math.max(this.stats.maxCombo, this.combo);
     } else {
@@ -541,16 +568,24 @@ export default class Blocks extends GameBase {
     }
     if (this.multi) {
       // 공격량 = 줄 수 기본값 (스핀·B2B·콤보·퍼펙트 클리어 보너스), 받을 공격부터 상쇄
-      let atk = spin ? (spin.mini ? MINI_ATK[n] : SPIN_ATK[n]) : LINE_ATK[n];
-      if (b2bText) atk += 1;
-      atk += COMBO_ATK[Math.min(Math.max(0, this.combo), COMBO_ATK.length - 1)];
-      if (perfect) atk += 10;
-      while (atk > 0 && this.incoming.length) {
-        const g = this.incoming[0], c = Math.min(g.n, atk);
-        g.n -= c; atk -= c;
-        if (g.n <= 0) this.incoming.shift();
+      // 공격량 (TETR.IO 방식) + 서지: B2B 4단계 이상이 끊기면 모아 둔 만큼 3번에 나눠 발사
+      const packets = [attackFor({ n, spin, b2b: this.b2b, combo: this.combo, perfect })];
+      if (this.surgeReady) {
+        const surge = this.surgeReady;
+        this.surgeReady = 0;
+        const a = Math.ceil(surge / 3), b2 = Math.ceil((surge - a) / 2);
+        packets.push(a, b2, surge - a - b2);
+        this.callout = { text: `서지! ${surge}줄`, sub: 'B2B 연쇄 해방', color: '#fb923c', t: 1.6 };
       }
-      if (atk > 0) this.sendAttack(atk);
+      for (let atk of packets) {
+        // 받을 공격부터 상쇄
+        while (atk > 0 && this.incoming.length) {
+          const g = this.incoming[0], c = Math.min(g.n, atk);
+          g.n -= c; atk -= c;
+          if (g.n <= 0) this.incoming.shift();
+        }
+        if (atk > 0) this.sendAttack(atk);
+      }
     }
     this.addScore(gained);
     const comboText = this.combo > 0 ? ` ${this.combo}콤보` : '';
