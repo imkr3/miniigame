@@ -4,6 +4,34 @@ import * as THREE from '../../vendor/three.module.min.js';
 
 const SAMPLE_STEP = 2; // m
 
+/** 노면 무늬 */
+function surfaceTexture(kind) {
+  return canvasTexture(64, 64, (c, w, h) => {
+    if (kind === 'wood') { // 나무 다리: 가로 널빤지
+      for (let y = 0; y < h; y += 8) { c.fillStyle = ['#a16207', '#92400e', '#b45309'][(y / 8) % 3]; c.fillRect(0, y, w, 7); c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(0, y + 7, w, 1); }
+      c.fillStyle = 'rgba(0,0,0,.4)'; for (let y = 2; y < h; y += 8) { c.fillRect(4, y, 2, 2); c.fillRect(w - 6, y, 2, 2); }
+    } else if (kind === 'brick') { // 벽돌길
+      c.fillStyle = '#9a3412'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#c2410c';
+      for (let y = 0; y < h; y += 8) for (let x = (y / 8) % 2 ? -8 : 0; x < w; x += 16) c.fillRect(x + 1, y + 1, 14, 6);
+    } else if (kind === 'neon') { // 네온 격자
+      c.fillStyle = '#0b1026'; c.fillRect(0, 0, w, h);
+      c.strokeStyle = '#22d3ee'; c.lineWidth = 2; c.strokeRect(1, 1, w - 2, h - 2);
+      c.strokeStyle = 'rgba(244,114,182,.8)'; c.beginPath(); c.moveTo(w / 2, 0); c.lineTo(w / 2, h); c.stroke();
+    } else if (kind === 'glass') { // 유리 다리: 푸른 판 + 반짝임
+      c.fillStyle = '#bae6fd'; c.fillRect(0, 0, w, h);
+      c.strokeStyle = '#e0f2fe'; c.lineWidth = 3; c.strokeRect(2, 2, w - 4, h - 4);
+      c.strokeStyle = 'rgba(255,255,255,.8)'; c.beginPath(); c.moveTo(10, 50); c.lineTo(30, 30); c.stroke();
+    } else if (kind === 'metal') { // 철판 격자
+      c.fillStyle = '#52525b'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#71717a'; for (let y = 4; y < h; y += 10) for (let x = 4; x < w; x += 10) c.fillRect(x, y, 6, 2);
+      c.fillStyle = 'rgba(249,115,22,.5)'; c.fillRect(0, 0, w, 3);
+    } else if (kind === 'ice') {
+      c.fillStyle = '#e0f2fe'; c.fillRect(0, 0, w, h);
+    } else { c.fillStyle = '#4b5059'; c.fillRect(0, 0, w, h); }
+  });
+}
+
 function canvasTexture(w, h, draw, repeat = true) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -59,7 +87,39 @@ export class Track {
     this.ramps = (def.ramps ?? []).map((k) => ({ d: pointD(k), glide: false }));
     for (const g of this.gaps) this.ramps.push({ d: g.launch, glide: true });
     this.bridges = (def.bridges ?? []).map(([a, b]) => [pointD(a), pointD(b)]);
+    for (const s of this.samples) s.bank = 0;
     this.buildShortcuts();
+    // 갈림길·지름길까지 포함한 범위 (미니맵·바닥·먼 산 배치용)
+    for (const sc of this.shortcuts) for (const q of sc.samples) {
+      const b = this.bounds;
+      b.minX = Math.min(b.minX, q.x); b.maxX = Math.max(b.maxX, q.x); b.minZ = Math.min(b.minZ, q.z); b.maxZ = Math.max(b.maxZ, q.z);
+    }
+    this.computeBanks();
+  }
+
+  /**
+   * 기울어진 커브(뱅크): 급커브에서 도로 안쪽이 낮아짐 → 바깥으로 덜 밀리고 보기에도 시원함
+   * bank = 오른쪽으로 1m 갈 때 높이 변화. 출발선·점프대·글라이더·갈림길 입구 근처는 평평하게
+   */
+  computeBanks() {
+    const S = this.samples, N = this.N, L = this.length, maxB = this.def.bank ?? 0.16;
+    const raw = S.map((s, i) => {
+      const a = S[(i - 5 + N) % N], b = S[(i + 5) % N];
+      const cross = a.tx * b.tz - a.tz * b.tx; // >0: 오른쪽으로 꺾임 → 오른쪽(안쪽)이 낮게
+      return Math.max(-maxB, Math.min(maxB, -cross * 1.1));
+    });
+    const flatNear = [0];
+    for (const r of this.ramps) flatNear.push(r.d);
+    for (const g of this.gaps) flatNear.push(g.launch, g.to);
+    for (const o of this.openings) flatNear.push(o.a, o.b);
+    S.forEach((s, i) => {
+      let sum = 0;
+      for (let k = -8; k <= 8; k++) sum += raw[(i + k + N) % N];
+      let b = sum / 17;
+      for (const d of flatNear) { const dd = Math.min(Math.abs(s.d - d), L - Math.abs(s.d - d)); if (dd < 40) b *= Math.max(0, (dd - 15) / 25); }
+      if (this.inGap(s.d)) b = 0;
+      s.bank = b;
+    });
   }
 
   /** 지름길: 본선에서 벽이 뚫린 곳으로 나가 바깥 흙길을 지나 다시 본선으로 합류 */
@@ -68,13 +128,17 @@ export class Track {
     this.openings = [];
     this.shortcuts = (this.def.shortcuts ?? []).map((sc) => {
       const dFrom = sc.from * L, dTo = sc.to * L, side = sc.side;
-      const out = this.wall + 7;
+      const branch = sc.kind === 'branch'; // 갈림길: 진짜 포장도로 (본선과 비슷한 길이, 벽 있음)
+      const out = this.wall + (sc.out ?? (branch ? 20 : 7));
       const pt = (d, lat) => { const p = this.at(d); return new THREE.Vector3(p.x + p.nx * lat * side, p.y, p.z + p.nz * lat * side); };
-      const A = pt(dFrom, this.hw * 0.3), A2 = pt(dFrom + 20, out), B2 = pt(dTo - 20, out), B = pt(dTo, this.hw * 0.3);
+      // 갈림길은 옆으로 많이 벌어지므로 그만큼 길게 빠져나가게 (급하게 꺾이지 않도록)
+      const span0 = ((dTo - dFrom) % L + L) % L;
+      const lead = branch ? Math.min(span0 * 0.38, Math.max(24, out * 0.9)) : 20;
+      const A = pt(dFrom, this.hw * 0.3), A2 = pt(dFrom + lead, out), B2 = pt(dTo - lead, out), B = pt(dTo, this.hw * 0.3);
       const mid = A2.clone().add(B2).multiplyScalar(0.5);
       let curve = new THREE.CatmullRomCurve3([A, A2, mid, B2, B], false, 'centripetal');
       // 지름길 가운데 부분이 본선 벽에 붙지 않도록 바깥으로 밀어냄 (몇 번 반복)
-      const half = (sc.width ?? 10) / 2, clear = this.wall + half + 3;
+      const half = (sc.width ?? (branch ? 15 : 10)) / 2, clear = this.wall + half + 3;
       for (let iter = 0; iter < 3; iter++) {
         const pts2 = curve.getSpacedPoints(24);
         pts2.forEach((p, i) => {
@@ -94,9 +158,11 @@ export class Track {
         samples.push({ x: p.x, y: p.y, z: p.z, tx: t.x / fl, tz: t.z / fl, nx: -t.z / fl, nz: t.x / fl, d: u * length, slope: t.y / fl });
       }
       const span = ((dTo - dFrom) % L + L) % L;
-      this.openings.push({ side, a: dFrom - 4, b: dFrom + 26 }, { side, a: dTo - 26, b: dTo + 4 });
+      const op = branch ? Math.min(lead, 40) + 6 : 26;
+      this.openings.push({ side, a: dFrom - 4, b: dFrom + op }, { side, a: dTo - op, b: dTo + 4 });
       const ratio = length / span;
       // 짧을수록 흙길을 더 느리게 (지름길 이득을 구간 기준 20% 정도로)
+      if (branch) return { ...sc, branch, samples, length, dFrom, dTo, span, half, surface: 1 };
       return { ...sc, samples, length, dFrom, dTo, span, half, surface: Math.max(0.6, Math.min(0.85, ratio * 1.25)) };
     });
   }
@@ -110,12 +176,13 @@ export class Track {
     let best = 0, bd = Infinity;
     const from = hint === undefined || hint < 0 ? 0 : Math.max(0, hint - 25), to = hint === undefined || hint < 0 ? S.length - 1 : Math.min(S.length - 1, hint + 25);
     for (let i = from; i <= to; i++) { const s = S[i], d = (s.x - x) ** 2 + (s.z - z) ** 2; if (d < bd) { bd = d; best = i; } }
+    if (hint !== undefined && hint >= 0 && bd > (sc.half + 6) ** 2) return this.nearestShortcut(k, x, z); // 예전 위치 근처에 없으면 전체에서 다시 찾기
     const s = S[best];
     const lat = (x - s.x) * s.nx + (z - s.z) * s.nz;
     const along = Math.max(0, Math.min(sc.length, s.d + (x - s.x) * s.tx + (z - s.z) * s.tz));
     const t = along / sc.length;
     // 지름길 위 진행도를 본선 거리로 환산 (순위·랩 계산용)
-    return { i: best, lat, t, s, y: s.y, mainD: (sc.dFrom + t * sc.span) % this.length };
+    return { i: best, lat, t, s, y: s.y, dist2: bd, mainD: (sc.dFrom + t * sc.span) % this.length };
   }
 
   inRange(d, a, b) { return a <= b ? d >= a && d <= b : d >= a || d <= b; }
@@ -131,7 +198,7 @@ export class Track {
     const i = Math.floor(f) % this.N, j = (i + 1) % this.N, k = f - Math.floor(f);
     const a = this.samples[i], b = this.samples[j];
     const tx = a.tx + (b.tx - a.tx) * k, tz = a.tz + (b.tz - a.tz) * k, tl = Math.hypot(tx, tz) || 1;
-    return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k, tx: tx / tl, tz: tz / tl, nx: -tz / tl, nz: tx / tl, slope: a.slope, i, d };
+    return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k, tx: tx / tl, tz: tz / tl, nx: -tz / tl, nz: tx / tl, slope: a.slope, bank: (a.bank ?? 0) + ((b.bank ?? 0) - (a.bank ?? 0)) * k, i, d };
   }
 
   /** (x,z)에서 가장 가까운 트랙 지점. hint(이전 위치)가 있으면 주변만 검색 → 고가도로 아래위를 헷갈리지 않음 */
@@ -151,7 +218,8 @@ export class Track {
     const lat = (x - s.x) * s.nx + (z - s.z) * s.nz;
     let d = s.d + along;
     d = ((d % this.length) + this.length) % this.length;
-    return { i: best, lat, d, s, y: this.at(d).y };
+    const p = this.at(d);
+    return { i: best, lat, d, s, y: p.y + lat * p.bank, bank: p.bank };
   }
 
   curvatureAt(i) { return this.curv[i]; }
@@ -188,7 +256,8 @@ export class Track {
       const pos = [], uv = [], idx = [];
       for (let i = 0; i <= N; i++) {
         const s = S[i % N], d = i === N ? this.length : s.d;
-        const ya = absY ? y0 : s.y + y0, yb = absY ? y1 : s.y + y1;
+        const bk = s.bank ?? 0;
+        const ya = absY ? y0 : s.y + y0 + a * bk, yb = absY ? y1 : s.y + y1 + bOff * bk;
         pos.push(s.x + s.nx * a, ya, s.z + s.nz * a, s.x + s.nx * bOff, yb, s.z + s.nz * bOff);
         uv.push(0, d / vScale, 1, d / vScale);
         if (i < N && filter(i)) { const k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
@@ -208,7 +277,15 @@ export class Track {
       ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.fillRect(w / 2 - 2, 0, 4, h * 0.45);
       ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillRect(4, 0, 3, h); ctx.fillRect(w - 7, 0, 3, h);
     });
-    strip(-this.hw, this.hw, 0.02, 0.02, new THREE.MeshLambertMaterial({ map: roadTex, side: THREE.DoubleSide }), 12);
+    const roadMat = new THREE.MeshLambertMaterial({ map: roadTex, side: THREE.DoubleSide });
+    strip(-this.hw, this.hw, 0.02, 0.02, roadMat, 12);
+    // 노면 구간 (나무 다리·벽돌길·네온 격자·유리·철판): 도로 위에 덮어 그림
+    for (const sf of this.def.surfaces ?? []) {
+      const a0 = sf.from * this.length, a1 = sf.to * this.length;
+      const tex = surfaceTexture(sf.kind);
+      const mat = new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, transparent: sf.kind === 'glass', opacity: sf.kind === 'glass' ? 0.85 : 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+      strip(-this.hw, this.hw, 0.025, 0.025, mat, sf.kind === 'wood' ? 4 : 8, (i) => keep(i) && this.inRange(S[i].d, a0, a1) && this.inRange(S[(i + 1) % N].d, a0, a1));
+    }
     const curbTex = canvasTexture(16, 64, (ctx, w, h) => {
       ctx.fillStyle = css(th.curbA); ctx.fillRect(0, 0, w, h / 2);
       ctx.fillStyle = css(th.curbB); ctx.fillRect(0, h / 2, w, h / 2);
@@ -236,6 +313,7 @@ export class Track {
       ? new THREE.MeshBasicMaterial({ color: th.wall, side: THREE.DoubleSide, transparent: true, opacity: 0.55 })
       : new THREE.MeshLambertMaterial({ map: wallTex, side: THREE.DoubleSide });
     const topMat = new THREE.MeshBasicMaterial({ color: th.wallTop, side: THREE.DoubleSide });
+    this._mats = { roadMat, curbMat, wallMat, topMat, arrowTex: null };
     for (const off of [this.wall, -this.wall]) {
       const side = Math.sign(off);
       const wallKeep = (i) => keep(i) && !this.isOpen(S[i].d, side) && !this.isOpen(S[(i + 1) % N].d, side);
@@ -311,6 +389,7 @@ export class Track {
       ctx.fillStyle = '#fef08a';
       for (const y of [8, 34]) { ctx.beginPath(); ctx.moveTo(8, y + 22); ctx.lineTo(32, y); ctx.lineTo(56, y + 22); ctx.lineTo(44, y + 22); ctx.lineTo(32, y + 12); ctx.lineTo(20, y + 22); ctx.fill(); }
     }, false);
+    this._mats.arrowTex = arrowTex;
     this.boostPads = this.def.boosts.map((f) => {
       const p = this.at(f * this.length);
       const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.MeshBasicMaterial({ map: arrowTex, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
@@ -354,7 +433,12 @@ export class Track {
     this.boxSpots = [];
     for (const f of this.def.boxes) {
       const p = this.at(f * this.length);
-      for (const k of [-0.6, -0.2, 0.2, 0.6]) this.boxSpots.push({ x: p.x + p.nx * this.hw * k, y: p.y, z: p.z + p.nz * this.hw * k });
+      for (const k of [-0.6, -0.2, 0.2, 0.6]) this.boxSpots.push({ x: p.x + p.nx * this.hw * k, y: p.y + this.hw * k * p.bank, z: p.z + p.nz * this.hw * k });
+    }
+    // 갈림길 위 아이템 박스
+    for (const sc of this.shortcuts) for (const f of sc.boxes ?? []) {
+      const S2 = sc.samples, q = S2[Math.round(f * (S2.length - 1))];
+      for (const k of [-0.45, 0, 0.45]) this.boxSpots.push({ x: q.x + q.nx * sc.half * k, y: q.y, z: q.z + q.nz * sc.half * k });
     }
 
     this.addScenery(g, quality);
@@ -374,12 +458,12 @@ export class Track {
     const postMat = new THREE.MeshLambertMaterial({ color: 0xfacc15 });
     for (const sc of this.shortcuts) {
       const S = sc.samples;
-      const ribbon = (a, b, y0, y1, material) => {
+      const ribbon = (a, b, y0, y1, material, from = 0, to = S.length - 1) => {
         const p = [], u = [], ix = [];
         S.forEach((s, i) => {
           p.push(s.x + s.nx * a, s.y + y0, s.z + s.nz * a, s.x + s.nx * b, s.y + y1, s.z + s.nz * b);
           u.push(0, s.d / 8, 1, s.d / 8);
-          if (i < S.length - 1) { const k = i * 2; ix.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+          if (i < S.length - 1 && i >= from && i < to) { const k = i * 2; ix.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
         });
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
@@ -388,6 +472,36 @@ export class Track {
         geo.computeVertexNormals();
         g.add(new THREE.Mesh(geo, material));
       };
+      if (sc.branch) {
+        // 갈림길: 포장도로 + 연석 + 양쪽 벽 (들어가고 나오는 곳은 벽 없이 본선과 이어짐) + 가속 발판
+        const M = this._mats;
+        ribbon(-sc.half, sc.half, 0.02, 0.02, M.roadMat);
+        ribbon(sc.half, sc.half + 1, 0.03, 0.03, M.curbMat); ribbon(-sc.half - 1, -sc.half, 0.03, 0.03, M.curbMat);
+        const w0 = 12, w1 = S.length - 13;
+        for (const sd of [-1, 1]) { ribbon(sd * (sc.half + 1.2), sd * (sc.half + 1.2), 0, 1.1, M.wallMat, w0, w1); ribbon(sd * (sc.half + 1.2) - 0.25, sd * (sc.half + 1.2) + 0.25, 1.12, 1.12, M.topMat, w0, w1); }
+        if (this.def.floating) { ribbon(-sc.half - 1.2, sc.half + 1.2, -1.6, -1.6, dirtMat); }
+        else if (S.some((q) => q.y > 0.5)) for (const sd of [-1, 1]) ribbon(sd * (sc.half + 1.2), sd * (sc.half + 1.2), 0, 0, dirtMat);
+        for (const f of sc.boosts ?? []) {
+          const q = S[Math.round(f * (S.length - 1))];
+          const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.MeshBasicMaterial({ map: M.arrowTex, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+          pad.rotation.order = 'YXZ'; pad.rotation.set(-Math.PI / 2, Math.atan2(q.tx, q.tz) + Math.PI, 0);
+          pad.position.set(q.x, q.y + 0.05, q.z);
+          g.add(pad);
+          this.boostPads.push({ d: -1, x: q.x, y: q.y, z: q.z });
+        }
+        const s0 = this.at(sc.dFrom - 12);
+        const signTex = canvasTexture(160, 64, (ctx, w, h) => {
+          ctx.fillStyle = '#2563eb'; ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = '#fff'; ctx.font = '900 22px system-ui, sans-serif'; ctx.textAlign = 'center';
+          ctx.fillText(sc.side > 0 ? '갈림길 ▶' : '◀ 갈림길', w / 2, 30);
+          ctx.font = '700 13px system-ui, sans-serif'; ctx.fillText(sc.label ?? '', w / 2, 52);
+        }, false);
+        const sign = new THREE.Mesh(new THREE.BoxGeometry(5, 2, 0.2), new THREE.MeshBasicMaterial({ map: signTex }));
+        sign.position.set(s0.x + s0.nx * (this.wall + 1.5) * sc.side, s0.y + 3.2, s0.z + s0.nz * (this.wall + 1.5) * sc.side);
+        sign.rotation.y = Math.atan2(s0.tx, s0.tz) + Math.PI;
+        g.add(sign);
+        continue;
+      }
       ribbon(-sc.half, sc.half, 0.015, 0.015, mat);
       if (this.def.floating) { ribbon(-sc.half, sc.half, -0.8, -0.8, dirtMat); for (const s of [-1, 1]) ribbon(s * sc.half, s * sc.half, -0.8, 0, dirtMat); }
       else if (S.some((s) => s.y > 0.5)) for (const s of [-1, 1]) ribbon(s * sc.half, s * sc.half, 0, 0, dirtMat); // (높은 지름길은 아래 흙둑으로 대충 메움)
@@ -494,7 +608,7 @@ export class Track {
     // 먼 배경 산: 트랙에서 가장 먼 곳보다 바깥 고리에 (반경 radius 인 물체가 트랙을 덮지 않도록)
     const ring = (n, radius, scaleMax, phase = 0) => {
       let far = 0;
-      for (const s of this.samples) far = Math.max(far, Math.hypot(s.x - (b.minX + b.maxX) / 2, s.z - (b.minZ + b.maxZ) / 2));
+      for (const s of [...this.samples, ...this.shortcuts.flatMap((sc) => sc.samples)]) far = Math.max(far, Math.hypot(s.x - (b.minX + b.maxX) / 2, s.z - (b.minZ + b.maxZ) / 2));
       const out = [];
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2 + phase, sc = 1 + Math.random() * (scaleMax - 1);

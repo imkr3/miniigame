@@ -43,6 +43,8 @@ export function combineStats(ch, kart) {
 // ramps = 점프대가 있는 제어점 번호, gliders = [시작 제어점, 끝 제어점] 사이가 낭떠러지 → 글라이더로 활공
 // bridges = [시작, 끝] 제어점 구간은 흙둑 대신 기둥으로 받침 (고가도로), floating = 공중에 떠 있는 트랙
 // hazards = 트랙 장애물 (boulder 굴러오는 바위 · geyser 용암 분출 · ice 빙판, at = 트랙 길이 비율)
+// surfaces = 노면 구간 (wood 나무 다리 · brick 벽돌 · neon 네온 격자 · glass 유리 · metal 철판)
+// shortcuts 에 kind: 'branch' = 갈림길 (진짜 도로, 본선과 비슷한 길이, boosts/boxes 로 장점 부여, out = 본선에서 떨어진 거리)
 // shortcuts = 지름길 (본선 비율 from → to, side = 오른쪽 1 / 왼쪽 -1 벽이 뚫림). 흙길이라 느리지만 짧음
 export const TRACKS = [
   {
@@ -50,7 +52,8 @@ export const TRACKS = [
     scale: 1.89, width: 18,
     points: [[0, 0, 0], [60, 0, 0], [110, -5, 2], [150, 20, 5], [160, 65, 7], [135, 100, 6], [90, 105, 3], [60, 80, 0], [30, 90, 0], [10, 130, 2], [-40, 140, 4], [-90, 115, 2], [-105, 60, 0], [-80, 20, 0], [-40, 5, 0]],
     boosts: [0.05, 0.62], boxes: [0.15, 0.5, 0.78], ramps: [8, 12],
-    shortcuts: [{ from: 0.187, to: 0.447, side: 1 }],
+    shortcuts: [{ from: 0.187, to: 0.447, side: 1 }, { kind: 'branch', from: 0.66, to: 0.78, side: 1, out: 60, boosts: [0.3, 0.7], label: '가속 발판 길' }],
+    surfaces: [{ from: 0.36, to: 0.46, kind: 'brick' }],
     theme: { sky: 0x8ecbff, fog: 0xbfe3ff, ground: 0x5fa64a, dirt: 0x7a5a3a, wall: 0xf1f5f9, wallTop: 0xef4444, curbA: 0xef4444, curbB: 0xffffff, scenery: 'trees', sun: 0xffffff },
   },
   {
@@ -58,8 +61,9 @@ export const TRACKS = [
     scale: 1.69, width: 18,
     points: [[0, 0, 0], [90, 0, 0], [140, 25, 2], [145, 70, 5], [110, 92, 8], [60, 78, 11], [32, 98, 14], [45, 140, 16], [100, 150, 17], [150, 160, 17], [205, 170, 12], [225, 205, 8], [170, 230, 5], [60, 228, 4], [-20, 212, 2], [-62, 172, 2], [-50, 122, 1], [-82, 80, 0], [-72, 30, 0], [-40, 5, 0]],
     boosts: [0.1, 0.8], boxes: [0.16, 0.42, 0.72], ramps: [17], gliders: [[9, 10]],
-    shortcuts: [{ from: 0.041, to: 0.224, side: 1 }],
+    shortcuts: [{ from: 0.041, to: 0.224, side: 1 }, { kind: 'branch', from: 0.6, to: 0.76, side: 1, out: 60, boosts: [0.25], boxes: [0.55], label: '아이템 길' }],
     hazards: [{ type: 'boulder', at: 0.36 }, { type: 'boulder', at: 0.65, dir: -1 }, { type: 'boulder', at: 0.85 }],
+    surfaces: [{ from: 0.55, to: 0.62, kind: 'wood' }],
     theme: { sky: 0xf6c38b, fog: 0xf3d2a6, ground: 0xd9a35f, dirt: 0xa0612e, wall: 0xb45309, wallTop: 0x78350f, curbA: 0xf97316, curbB: 0xfef3c7, scenery: 'cacti', sun: 0xfff1d6 },
   },
   {
@@ -67,7 +71,8 @@ export const TRACKS = [
     scale: 1.69, width: 18,
     points: [[-20, -75, 0], [60, -70, 0], [100, -30, 0], [90, 30, 1], [40, 70, 6], [0, 95, 11], [-50, 125, 11], [-90, 170, 8], [-60, 230, 5], [10, 250, 3], [80, 230, 1], [100, 180, 0], [60, 125, 0], [0, 95, 0], [-50, 65, 0], [-90, 20, 0], [-80, -45, 0]],
     boosts: [0.04, 0.33, 0.7], boxes: [0.15, 0.5, 0.82], ramps: [9], bridges: [[4, 7]],
-    shortcuts: [{ from: 0.52, to: 0.709, side: -1 }],
+    shortcuts: [{ from: 0.52, to: 0.709, side: -1 }, { kind: 'branch', from: 0.14, to: 0.26, side: 1, out: 60, boosts: [0.5], label: '가속 발판 길' }, { kind: 'branch', from: 0.78, to: 0.9, side: 1, out: 60, boxes: [0.5], label: '아이템 길' }],
+    surfaces: [{ from: 0.45, to: 0.6, kind: 'neon' }],
     theme: { sky: 0x0b1026, fog: 0x14183a, ground: 0x1f2937, dirt: 0x334155, wall: 0x22d3ee, wallTop: 0xf472b6, curbA: 0xa855f7, curbB: 0x22d3ee, scenery: 'city', sun: 0x9fb4ff, night: true },
   },
   {
@@ -75,8 +80,9 @@ export const TRACKS = [
     scale: 1.76, width: 18,
     points: [[0, 0, 0], [70, -6, 0], [120, 10, 2], [140, 50, 5], [115, 80, 8], [80, 70, 11], [55, 95, 14], [70, 135, 17], [40, 170, 20], [-10, 172, 20], [-65, 172, 14], [-100, 150, 10], [-110, 100, 6], [-90, 45, 2], [-50, 12, 0]],
     boosts: [0.04, 0.5], boxes: [0.2, 0.5, 0.82], ramps: [12], gliders: [[9, 10]],
-    shortcuts: [{ from: 0.092, to: 0.292, side: 1 }],
+    shortcuts: [{ from: 0.092, to: 0.292, side: 1 }, { kind: 'branch', from: 0.82, to: 0.94, side: 1, out: 48, boxes: [0.5], label: '아이템 길' }],
     hazards: [{ type: 'ice', at: 0.12, len: 40 }, { type: 'ice', at: 0.46, len: 36 }, { type: 'ice', at: 0.86, len: 40 }],
+    surfaces: [{ from: 0.62, to: 0.68, kind: 'wood' }],
     theme: { sky: 0xc7d8ea, fog: 0xe2ecf6, ground: 0xf1f5f9, dirt: 0xcbd5e1, wall: 0x93c5fd, wallTop: 0x1d4ed8, curbA: 0x2563eb, curbB: 0xffffff, scenery: 'pines', sun: 0xffffff },
   },
   {
@@ -84,7 +90,8 @@ export const TRACKS = [
     scale: 1.82, width: 18,
     points: [[0, 0, 24], [70, 0, 24], [120, 30, 26], [135, 85, 29], [110, 125, 31], [80, 128, 31], [20, 128, 24], [-20, 100, 24], [-60, 75, 23], [-100, 80, 25], [-130, 45, 27], [-130, 5, 28], [-120, -45, 23], [-70, -40, 22], [-30, -25, 23]],
     boosts: [0.08, 0.6], boxes: [0.18, 0.45, 0.75], ramps: [1], gliders: [[5, 6], [11, 12]], floating: true,
-    shortcuts: [{ from: 0.646, to: 0.906, side: 1, width: 9 }],
+    shortcuts: [{ from: 0.646, to: 0.906, side: 1, width: 9 }, { kind: 'branch', from: 0.18, to: 0.3, side: 1, out: 60, boosts: [0.5], label: '가속 발판 길' }],
+    surfaces: [{ from: 0.35, to: 0.45, kind: 'glass' }],
     theme: { sky: 0x60a5fa, fog: 0xbfdbfe, ground: 0xf8fafc, dirt: 0xe9d5ff, wall: 0xfbcfe8, wallTop: 0xa855f7, curbA: 0xf472b6, curbB: 0xffffff, scenery: 'clouds', sun: 0xffffff },
   },
   {
@@ -92,8 +99,9 @@ export const TRACKS = [
     scale: 1.75, width: 18,
     points: [[0, 0, 0], [80, 0, 0], [130, 20, 3], [150, 65, 7], [125, 105, 11], [75, 115, 14], [35, 92, 16], [-5, 96, 16], [-60, 122, 10], [-95, 150, 6], [-135, 132, 3], [-155, 85, 1], [-130, 40, 0], [-90, 15, 0], [-45, 0, 0]],
     boosts: [0.06, 0.66], boxes: [0.17, 0.48, 0.8], ramps: [11], gliders: [[7, 8]],
-    shortcuts: [{ from: 0.13, to: 0.3, side: 1 }],
+    shortcuts: [{ from: 0.13, to: 0.3, side: 1 }, { kind: 'branch', from: 0.8, to: 0.92, side: 1, out: 36, boosts: [0.5], label: '용암 없는 길' }],
     hazards: [{ type: 'geyser', at: 0.2, lat: -0.45 }, { type: 'geyser', at: 0.33, lat: 0.45 }, { type: 'geyser', at: 0.7, lat: 0 }, { type: 'geyser', at: 0.86, lat: -0.4 }],
+    surfaces: [{ from: 0.5, to: 0.6, kind: 'metal' }],
     theme: { sky: 0x7c2d12, fog: 0x9a3412, ground: 0x3f3a36, dirt: 0x57534e, wall: 0x44403c, wallTop: 0xf97316, curbA: 0xef4444, curbB: 0x1c1917, scenery: 'volcano', sun: 0xffc9a3 },
   },
   {
@@ -101,7 +109,8 @@ export const TRACKS = [
     scale: 1.8, width: 18,
     points: [[0, 0, 0], [70, 0, 0], [120, 15, 1], [150, 55, 3], [140, 100, 6], [100, 125, 9], [55, 118, 10], [15, 140, 5], [-25, 162, 2], [-75, 152, 1], [-108, 115, 0], [-112, 65, 0], [-88, 28, 0], [-45, 6, 0]],
     boosts: [0.04, 0.58], boxes: [0.16, 0.47, 0.8], ramps: [2, 11], gliders: [[6, 7]],
-    shortcuts: [{ from: 0.7, to: 0.88, side: 1 }],
+    shortcuts: [{ from: 0.7, to: 0.88, side: 1 }, { kind: 'branch', from: 0.24, to: 0.36, side: 1, out: 60, boosts: [0.3], boxes: [0.6], label: '아이템 길' }],
+    surfaces: [{ from: 0.72, to: 0.8, kind: 'wood' }],
     theme: { sky: 0x67e8f9, fog: 0xbae6fd, ground: 0xfde68a, dirt: 0xd6a85c, wall: 0xffffff, wallTop: 0x06b6d4, curbA: 0xf43f5e, curbB: 0xffffff, scenery: 'beach', sun: 0xfffbeb },
   },
 ];

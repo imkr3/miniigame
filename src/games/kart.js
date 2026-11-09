@@ -4,7 +4,7 @@ import { sfx } from '../sfx.js';
 import { CHARACTERS, KARTS, TRACKS, ITEMS, combineStats, rollItem } from './kart/data.js';
 import { Track } from './kart/track.js';
 import { buildRacer, buildItemBox, buildItemMesh, Sparks } from './kart/models.js';
-import { buildFeatures, animateFeatures, updateHazards, onIce } from './kart/features.js';
+import { buildFeatures, animateFeatures, updateHazards, updateRings, onIce } from './kart/features.js';
 
 // 카트 레이스 (3D, three.js)
 // - 캐릭터 8 · 카트 4 · 트랙 5, 모드: 레이스 / 그랑프리(5경기) / 타임 어택(고스트)
@@ -632,7 +632,7 @@ export default class Kart extends GameBase {
       this.physics(r, inp, dt);
       r.hopReq = false;
     }
-    if (this.phase === 'race' || this.phase === 'finish') updateHazards(this, this.features, this.raceT);
+    if (this.phase === 'race' || this.phase === 'finish') { updateHazards(this, this.features, this.raceT); updateRings(this, this.features); }
     this.collideRacers();
     this.updateObjects(dt);
     this.updateRanks();
@@ -752,7 +752,9 @@ export default class Kart extends GameBase {
       for (let k = 0; k < tr.shortcuts.length; k++) {
         const q = tr.nearestShortcut(k, r.x, r.z, r.scIdx[k]);
         r.scIdx[k] = q.i;
-        if (Math.abs(q.lat) <= tr.shortcuts[k].half + 1.2 && Math.abs(r.y - q.y) < 6) { zone = k; sc = tr.shortcuts[k]; scn = q; break; }
+        // 옆 거리(lat)뿐 아니라 실제 거리도 확인 (멀리 떨어진 다른 지름길로 잘못 인식하던 문제)
+        const tol = tr.shortcuts[k].branch ? 3.5 : 1.2; // 갈림길은 벽이 있으니 살짝 넘어도 벽에 막힌 것으로
+        if (Math.abs(q.lat) <= tr.shortcuts[k].half + tol && q.dist2 < (tr.shortcuts[k].half + tol + 3) ** 2 && r.y - q.y > -6 && r.y - q.y < 25) { zone = k; sc = tr.shortcuts[k]; scn = q; break; } // 공중에 떠 있어도 그 길 위로 인식 (아래로 빠지지 않게)
       }
     }
     if (zone === 'off' && inGap) zone = 'gap';
@@ -814,6 +816,13 @@ export default class Kart extends GameBase {
         this.wallBump(r, n);
       }
     }
+    // 갈림길 양옆 벽 (들어가고 나오는 끝부분은 열려 있음)
+    if (sc?.branch && scn.t > 0.06 && scn.t < 0.94 && Math.abs(scn.lat) > sc.half + 0.6) {
+      const sg = Math.sign(scn.lat), push = Math.abs(scn.lat) - (sc.half + 0.6);
+      r.x -= scn.s.nx * sg * push; r.z -= scn.s.nz * sg * push;
+      this.wallBump(r, scn);
+    }
+    r.bank = zone === 'main' && r.grounded ? n.bank ?? 0 : 0; // 기울어진 커브: 차체도 같이 기울임
     r.zone = zone;
 
     // 코스 밖 (풀밭)에서 오래 머물거나 떨어지면 → 코스로 복귀
@@ -972,6 +981,8 @@ export default class Kart extends GameBase {
     m.root.rotation.order = 'YXZ';
     m.root.rotation.y = r.h;
     m.root.rotation.x = r.pitch;
+    r.rollV = (r.rollV ?? 0) + (-Math.atan(r.bank ?? 0) - (r.rollV ?? 0)) * Math.min(1, dt * 8);
+    m.root.rotation.z = r.rollV;
     m.root.visible = r.respawnT <= 0 || Math.floor(r.respawnT * 10) % 2 === 0;
     // 드리프트 땐 차체를 바깥쪽으로 틀고 기울임, 스핀은 빙글빙글, 트릭은 공중제비
     const yaw = r.spinT > 0 ? r.spinA : r.slip * 1.1;
@@ -1023,13 +1034,17 @@ export default class Kart extends GameBase {
       let dist = sc.dFrom - r.lastD; if (dist < 0) dist += tr.length;
       if (dist > 15 && dist < 70 && r.scDecide !== `${r.lap}-${k}`) {
         r.scDecide = `${r.lap}-${k}`;
-        r.scPlan = Math.random() < 0.2 + r.skill * 0.25 + (r.boostT > 0 || r.item === 'nitro' || r.item === 'triple' ? 0.25 : 0) ? k : -1;
+        r.scPlan = sc.branch ? (Math.random() < (sc.aiPick ?? 0.5) ? k : -1) // 갈림길: 반반 (트랙 설정)
+          : Math.random() < 0.2 + r.skill * 0.25 + (r.boostT > 0 || r.item === 'nitro' || r.item === 'triple' ? 0.25 : 0) ? k : -1;
       }
     }
     let tx, tz;
     if (typeof r.zone === 'number') { // 지름길 위: 지름길을 따라감
-      const S = tr.shortcuts[r.zone].samples, q = S[Math.min(S.length - 1, (r.scIdx[r.zone] ?? 0) + Math.max(3, Math.round(look / 4)))]; // 좁은 길: 가까운 곳을 보고 따라감 (멀리 보면 모서리를 잘라 떨어짐)
+      const S = tr.shortcuts[r.zone].samples, q = S[Math.min(S.length - 1, (r.scIdx[r.zone] ?? 0) + (tr.shortcuts[r.zone].branch ? Math.round(look / 2) : Math.max(3, Math.round(look / 4))))]; // 좁은 길: 가까운 곳을 보고 따라감 (멀리 보면 모서리를 잘라 떨어짐)
       tx = q.x; tz = q.z;
+    } else if (r.zone === 'off' && r.scPlan >= 0) { // 길 밖으로 밀려났으면 가던 갈림길로 바로 복귀
+      const sc = tr.shortcuts[r.scPlan], q = tr.nearestShortcut(r.scPlan, r.x, r.z);
+      if (q.dist2 < 60 ** 2) { const t2 = sc.samples[Math.min(sc.samples.length - 1, q.i + 6)]; tx = t2.x; tz = t2.z; }
     } else if (r.scPlan >= 0) {
       const sc = tr.shortcuts[r.scPlan];
       let dist = sc.dFrom - r.lastD; if (dist > tr.length / 2) dist -= tr.length;
@@ -1049,7 +1064,7 @@ export default class Kart extends GameBase {
     const slow = need > cap * 1.15 && !(r.boostT > 0) && r.grounded;
     // 급커브에서는 드리프트 (드리프트가 더 많이 돌 수 있음)
     let drift = r.drifting, hop = false;
-    const onSc = typeof r.zone === 'number';
+    const onSc = typeof r.zone === 'number' && !tr.shortcuts[r.zone].branch; // 갈림길은 넓어서 드리프트 해도 됨
     if (!r.drifting && !onSc && r.grounded && need > cap * 0.85 && r.speed > 16 && r.aiDriftT <= 0 && Math.random() < r.skill * 0.22) {
       hop = true; drift = true; r.aiDriftT = 1.5;
       steer = Math.sign(-diff) || 1;
@@ -1516,8 +1531,10 @@ export default class Kart extends GameBase {
     tr.samples.forEach((s, i) => { const x = cx + (s.x - m.ox) * m.s, y = cy + (s.z - m.oz) * m.s; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
     ctx.closePath(); ctx.stroke();
     // 지름길 (점선)
-    ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(253,224,71,.85)'; ctx.lineWidth = 2;
     for (const sc of tr.shortcuts) {
+      // 갈림길은 본선처럼 실선, 지름길(흙길)은 노란 점선
+      if (sc.branch) { ctx.setLineDash([]); ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 3; }
+      else { ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(253,224,71,.85)'; ctx.lineWidth = 2; }
       ctx.beginPath();
       sc.samples.forEach((s, i) => { const x = cx + (s.x - m.ox) * m.s, y = cy + (s.z - m.oz) * m.s; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
       ctx.stroke();

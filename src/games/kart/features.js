@@ -50,7 +50,7 @@ export function buildFeatures(track, g, quality = 1) {
     const dir = cross > 0 ? 1 : -1, outer = -dir; // 바깥쪽 벽에 세움
     const x = a.x + a.nx * (track.wall + 0.7) * outer, z = a.z + a.nz * (track.wall + 0.7) * outer;
     if (!clear(x, z, 0.5, a.d, 30)) continue;
-    signs[dir].push({ x, y: a.y, z, h: Math.atan2(a.tx, a.tz) + Math.PI }); // 다가오는 운전자를 향함
+    signs[dir].push({ x, y: a.y + (track.wall + 0.7) * outer * (a.bank ?? 0), z, h: Math.atan2(a.tx, a.tz) + Math.PI }); // 다가오는 운전자를 향함
     lastSign = a.d;
   }
   for (const dir of [1, -1]) {
@@ -281,6 +281,21 @@ export function buildFeatures(track, g, quality = 1) {
     }
   }
 
+  // ---------- 활공 부스트 링: 글라이더 구간 하늘에 3개, 통과하면 가속 ----------
+  const rings = [];
+  const ringCols = [0x38bdf8, 0xfacc15, 0xf472b6];
+  for (const gp of track.gaps) {
+    [0.3, 0.55, 0.8].forEach((f, k) => {
+      const d = gp.from + (gp.to - gp.from) * f, p = track.at(d);
+      const mesh = new THREE.Mesh(new THREE.TorusGeometry(4.2, 0.4, 8, 28), new THREE.MeshBasicMaterial({ color: ringCols[k] }));
+      const y = p.y + 2.5;
+      mesh.position.set(p.x, y, p.z); mesh.rotation.y = Math.atan2(p.tx, p.tz);
+      g.add(mesh);
+      rings.push({ x: p.x, y, z: p.z, r: 4.6, mesh, id: rings.length });
+      anims.push({ kind: 'spin', obj: mesh, axis: 'z', speed: 1.2 });
+    });
+  }
+
   // ---------- 장애물 ----------
   const hazards = [];
   for (const hz of def.hazards ?? []) {
@@ -294,13 +309,13 @@ export function buildFeatures(track, g, quality = 1) {
     } else if (hz.type === 'geyser') { // 용암 분출: 3초 쉬고, 1초 빛나며 경고, 1.2초 분출
       const x = s.x + s.nx * track.hw * (hz.lat ?? 0), z = s.z + s.nz * track.hw * (hz.lat ?? 0);
       const vent = new THREE.Mesh(new THREE.CircleGeometry(2.6, 16), new THREE.MeshBasicMaterial({ color: 0x7c2d12 }));
-      vent.rotation.x = -Math.PI / 2; vent.position.set(x, s.y + 0.06, z);
+      vent.rotation.x = -Math.PI / 2; vent.position.set(x, s.y + track.hw * (hz.lat ?? 0) * s.bank + 0.06, z);
       const glow = new THREE.Mesh(new THREE.RingGeometry(1.2, 2.6, 20), new THREE.MeshBasicMaterial({ color: 0xf97316, transparent: true, opacity: 0, side: THREE.DoubleSide }));
-      glow.rotation.x = -Math.PI / 2; glow.position.set(x, s.y + 0.08, z);
+      glow.rotation.x = -Math.PI / 2; glow.position.set(x, s.y + track.hw * (hz.lat ?? 0) * s.bank + 0.08, z);
       const col = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.4, 12, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xfb923c, transparent: true, opacity: 0.85 }));
       col.position.set(x, s.y + 6, z); col.visible = false;
       g.add(vent, glow, col);
-      hazards.push({ type: 'geyser', d, x, z, y: s.y, glow, col, period: 5.2, offset: hz.at * 7 });
+      hazards.push({ type: 'geyser', d, x, z, y: s.y + track.hw * (hz.lat ?? 0) * s.bank, glow, col, period: 5.2, offset: hz.at * 7 });
     } else if (hz.type === 'ice') { // 빙판: 이 구간은 미끄러움
       const iceTex = canvasTex(64, 64, (c, w, h) => {
         c.fillStyle = 'rgba(186,230,253,.75)'; c.fillRect(0, 0, w, h);
@@ -314,7 +329,7 @@ export function buildFeatures(track, g, quality = 1) {
       const n = Math.round(len / 2);
       for (let i = 0; i <= n; i++) {
         const p = track.at(d + i * 2);
-        pos.push(p.x - p.nx * track.hw, p.y + 0.045, p.z - p.nz * track.hw, p.x + p.nx * track.hw, p.y + 0.045, p.z + p.nz * track.hw);
+        pos.push(p.x - p.nx * track.hw, p.y - track.hw * p.bank + 0.045, p.z - p.nz * track.hw, p.x + p.nx * track.hw, p.y + track.hw * p.bank + 0.045, p.z + p.nz * track.hw);
         uv.push(0, i / 3, 3, i / 3);
         if (i < n) idx.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3);
       }
@@ -339,7 +354,7 @@ export function buildFeatures(track, g, quality = 1) {
     g.add(pts);
     weather = { pts, vy: wx.vy, n };
   }
-  return { hazards, anims, weather };
+  return { hazards, anims, weather, rings };
 }
 
 function addBalloons(g, anims, farSpot, n) {
@@ -412,6 +427,24 @@ export function updateHazards(game, F, t) {
       if (erupt) { const k = Math.min(1, (ph - 4) * 5); h.col.scale.set(1, k, 1); h.col.position.y = h.y + 6 * k; }
       if (erupt) for (const r of game.racers) if (!r.remote && (r.x - h.x) ** 2 + (r.z - h.z) ** 2 < 2.6 ** 2 && r.y - h.y < 10) game.hitRacer(r, 'lava');
       h.danger = warn || erupt;
+    }
+  }
+}
+
+/** 활공 링 통과 → 가속 (한 바퀴에 링마다 한 번) */
+export function updateRings(game, F) {
+  if (!F?.rings?.length) return;
+  for (const r of game.racers) {
+    if (r.remote || !r.gliding) continue;
+    r.ringHit ??= new Set();
+    for (const ring of F.rings) {
+      const key = `${r.lap}:${ring.id}`;
+      if (r.ringHit.has(key) || (r.x - ring.x) ** 2 + (r.y + 1 - ring.y) ** 2 + (r.z - ring.z) ** 2 > ring.r ** 2) continue;
+      r.ringHit.add(key);
+      r.boostT = Math.max(r.boostT, 1.0);
+      r.speed = Math.max(r.speed, r.stats.maxSpeed * 1.1);
+      for (let i = 0; i < 12; i++) game.sparks.emit(ring.x, ring.y, ring.z, ring.mesh.material.color.getHex(), (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, 0.5);
+      if (r.isPlayer) { game.sound('bonus'); game.msg = { text: '링 부스트!', t: 0.7 }; }
     }
   }
 }
