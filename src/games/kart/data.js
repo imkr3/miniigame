@@ -42,6 +42,7 @@ export function combineStats(ch, kart) {
 // boosts = 가속 발판(트랙 길이 비율), boxes = 아이템 박스 줄
 // ramps = 점프대가 있는 제어점 번호, gliders = [시작 제어점, 끝 제어점] 사이가 낭떠러지 → 글라이더로 활공
 // bridges = [시작, 끝] 제어점 구간은 흙둑 대신 기둥으로 받침 (고가도로), floating = 공중에 떠 있는 트랙
+// hazards = 트랙 장애물 (boulder 굴러오는 바위 · geyser 용암 분출 · ice 빙판, at = 트랙 길이 비율)
 // shortcuts = 지름길 (본선 비율 from → to, side = 오른쪽 1 / 왼쪽 -1 벽이 뚫림). 흙길이라 느리지만 짧음
 export const TRACKS = [
   {
@@ -58,6 +59,7 @@ export const TRACKS = [
     points: [[0, 0, 0], [90, 0, 0], [140, 25, 2], [145, 70, 5], [110, 92, 8], [60, 78, 11], [32, 98, 14], [45, 140, 16], [100, 150, 17], [150, 160, 17], [205, 170, 12], [225, 205, 8], [170, 230, 5], [60, 228, 4], [-20, 212, 2], [-62, 172, 2], [-50, 122, 1], [-82, 80, 0], [-72, 30, 0], [-40, 5, 0]],
     boosts: [0.1, 0.8], boxes: [0.16, 0.42, 0.72], ramps: [17], gliders: [[9, 10]],
     shortcuts: [{ from: 0.041, to: 0.224, side: 1 }],
+    hazards: [{ type: 'boulder', at: 0.36 }, { type: 'boulder', at: 0.65, dir: -1 }, { type: 'boulder', at: 0.85 }],
     theme: { sky: 0xf6c38b, fog: 0xf3d2a6, ground: 0xd9a35f, dirt: 0xa0612e, wall: 0xb45309, wallTop: 0x78350f, curbA: 0xf97316, curbB: 0xfef3c7, scenery: 'cacti', sun: 0xfff1d6 },
   },
   {
@@ -74,6 +76,7 @@ export const TRACKS = [
     points: [[0, 0, 0], [70, -6, 0], [120, 10, 2], [140, 50, 5], [115, 80, 8], [80, 70, 11], [55, 95, 14], [70, 135, 17], [40, 170, 20], [-10, 172, 20], [-65, 172, 14], [-100, 150, 10], [-110, 100, 6], [-90, 45, 2], [-50, 12, 0]],
     boosts: [0.04, 0.5], boxes: [0.2, 0.5, 0.82], ramps: [12], gliders: [[9, 10]],
     shortcuts: [{ from: 0.092, to: 0.292, side: 1 }],
+    hazards: [{ type: 'ice', at: 0.12, len: 40 }, { type: 'ice', at: 0.46, len: 36 }, { type: 'ice', at: 0.86, len: 40 }],
     theme: { sky: 0xc7d8ea, fog: 0xe2ecf6, ground: 0xf1f5f9, dirt: 0xcbd5e1, wall: 0x93c5fd, wallTop: 0x1d4ed8, curbA: 0x2563eb, curbB: 0xffffff, scenery: 'pines', sun: 0xffffff },
   },
   {
@@ -90,7 +93,16 @@ export const TRACKS = [
     points: [[0, 0, 0], [80, 0, 0], [130, 20, 3], [150, 65, 7], [125, 105, 11], [75, 115, 14], [35, 92, 16], [-5, 96, 16], [-60, 122, 10], [-95, 150, 6], [-135, 132, 3], [-155, 85, 1], [-130, 40, 0], [-90, 15, 0], [-45, 0, 0]],
     boosts: [0.06, 0.66], boxes: [0.17, 0.48, 0.8], ramps: [11], gliders: [[7, 8]],
     shortcuts: [{ from: 0.13, to: 0.3, side: 1 }],
+    hazards: [{ type: 'geyser', at: 0.2, lat: -0.45 }, { type: 'geyser', at: 0.33, lat: 0.45 }, { type: 'geyser', at: 0.7, lat: 0 }, { type: 'geyser', at: 0.86, lat: -0.4 }],
     theme: { sky: 0x7c2d12, fog: 0x9a3412, ground: 0x3f3a36, dirt: 0x57534e, wall: 0x44403c, wallTop: 0xf97316, curbA: 0xef4444, curbB: 0x1c1917, scenery: 'volcano', sun: 0xffc9a3 },
+  },
+  {
+    id: 'beach', name: '해변 리조트', desc: '야자수 해변, 언덕 위 전망대에서 바다 위로 활공', emoji: '🏖️',
+    scale: 1.8, width: 18,
+    points: [[0, 0, 0], [70, 0, 0], [120, 15, 1], [150, 55, 3], [140, 100, 6], [100, 125, 9], [55, 118, 10], [15, 140, 5], [-25, 162, 2], [-75, 152, 1], [-108, 115, 0], [-112, 65, 0], [-88, 28, 0], [-45, 6, 0]],
+    boosts: [0.04, 0.58], boxes: [0.16, 0.47, 0.8], ramps: [2, 11], gliders: [[6, 7]],
+    shortcuts: [{ from: 0.7, to: 0.88, side: 1 }],
+    theme: { sky: 0x67e8f9, fog: 0xbae6fd, ground: 0xfde68a, dirt: 0xd6a85c, wall: 0xffffff, wallTop: 0x06b6d4, curbA: 0xf43f5e, curbB: 0xffffff, scenery: 'beach', sun: 0xfffbeb },
   },
 ];
 

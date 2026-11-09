@@ -560,6 +560,20 @@ export class Track {
       const far = ring(9, 55, 1.8, 0.3);
       place(new THREE.CylinderGeometry(12, 55, 60, 8), new THREE.MeshLambertMaterial({ color: 0x3f2a22 }), far, 30);
       place(new THREE.CylinderGeometry(11, 11, 2, 8), new THREE.MeshBasicMaterial({ color: 0xfb923c }), far, 60);
+    } else if (kind === 'beach') {
+      // 야자수 + 파라솔 (색 3가지) + 모래 언덕
+      const palms = spots.slice(0, Math.round(spots.length * 0.45)), rest = spots.slice(palms.length);
+      place(new THREE.CylinderGeometry(0.35, 0.55, 7, 6), new THREE.MeshLambertMaterial({ color: 0x92400e }), palms, 3.5);
+      place(new THREE.ConeGeometry(3.6, 1.6, 7), new THREE.MeshLambertMaterial({ color: 0x16a34a }), palms, 7.4);
+      place(new THREE.ConeGeometry(2.6, 1.4, 7), new THREE.MeshLambertMaterial({ color: 0x22c55e }), palms.map((p) => ({ ...p, r: p.r + 0.5 })), 8.3);
+      place(new THREE.SphereGeometry(0.35, 6, 5), new THREE.MeshLambertMaterial({ color: 0x78350f }), palms.map((p) => ({ ...p, x: p.x + 0.5 })), 6.7);
+      const umb = rest.slice(0, Math.round(rest.length * 0.5));
+      [0xef4444, 0x3b82f6, 0xfacc15].forEach((c, k) => {
+        const list = umb.filter((_, i) => i % 3 === k);
+        place(new THREE.ConeGeometry(1.8, 0.8, 8), new THREE.MeshLambertMaterial({ color: c }), list, 2.6);
+        place(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 4), new THREE.MeshLambertMaterial({ color: 0xffffff }), list, 1.3);
+      });
+      place(new THREE.SphereGeometry(3, 8, 5), new THREE.MeshLambertMaterial({ color: 0xfcd34d }), rest.slice(umb.length), -1.6, 1.6, 0.5);
     } else if (kind === 'clouds') {
       // 구름 덩어리 + 떠 있는 작은 섬
       const cl = spots.map((p) => ({ ...p, s: 2 + Math.random() * 3, y0: 6 + Math.random() * 30 }));

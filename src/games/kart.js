@@ -4,6 +4,7 @@ import { sfx } from '../sfx.js';
 import { CHARACTERS, KARTS, TRACKS, ITEMS, combineStats, rollItem } from './kart/data.js';
 import { Track } from './kart/track.js';
 import { buildRacer, buildItemBox, buildItemMesh, Sparks } from './kart/models.js';
+import { buildFeatures, animateFeatures, updateHazards, onIce } from './kart/features.js';
 
 // 카트 레이스 (3D, three.js)
 // - 캐릭터 8 · 카트 4 · 트랙 5, 모드: 레이스 / 그랑프리(5경기) / 타임 어택(고스트)
@@ -131,6 +132,7 @@ export default class Kart extends GameBase {
     this.track = new Track(def);
     const q = { low: 0.45, normal: 1, high: 1.6 }[this.cfg.quality] ?? 1;
     this.trackGroup = this.track.build(q);
+    this.features = buildFeatures(this.track, this.trackGroup, q); // 랜드마크·장애물·날씨
     this.scene.add(this.trackGroup);
     this.trackIdx = idx;
     const th = def.theme;
@@ -565,6 +567,7 @@ export default class Kart extends GameBase {
   update(dt) {
     if (this.noGL) return;
     this.sparks.update(dt);
+    animateFeatures(this.features, dt, performance.now() / 1000, this.camera3);
     if (this.msg && (this.msg.t -= dt) <= 0) this.msg = null;
     if (this.phase === 'select') { if (this.preview) this.preview.root.rotation.y += dt * 0.6; return; }
     for (const b of this.boxes) {
@@ -601,6 +604,7 @@ export default class Kart extends GameBase {
       this.physics(r, inp, dt);
       r.hopReq = false;
     }
+    if (this.phase === 'race' || this.phase === 'finish') updateHazards(this, this.features, this.raceT);
     this.collideRacers();
     this.updateObjects(dt);
     this.updateRanks();
@@ -696,11 +700,14 @@ export default class Kart extends GameBase {
     else if (r.drifting) turn = r.driftDir * (0.4 + 0.3 * inward) * st.turn * 1.2;
     else turn = steer * st.turn * spF * (r.speed >= 0 ? 1 : -1) * (boosting ? 0.9 : 1);
     if (!r.grounded && !r.drifting && !r.gliding) turn *= 0.5;
+    if (r.onIce && r.grounded) turn *= 0.7; // 빙판: 덜 꺾이고
     r.h -= turn * dt;
     // 미끄러짐 각 (드리프트 중 일정)
     const slipT = r.drifting ? r.driftDir * 0.2 : 0;
     r.slip += (slipT - r.slip) * Math.min(1, dt * 4);
-    const mv = r.h + r.slip;
+    let mv = r.h + r.slip;
+    // 빙판: 가는 방향이 차 방향을 천천히 따라옴 (미끄러짐)
+    if (r.onIce && r.grounded) { r.iceMv = (r.iceMv ?? mv) + wrapAngle(mv - (r.iceMv ?? mv)) * Math.min(1, dt * 2.2); mv = r.iceMv; } else r.iceMv = mv;
     r.x += Math.sin(mv) * r.speed * dt;
     r.z += Math.cos(mv) * r.speed * dt;
 
@@ -709,6 +716,7 @@ export default class Kart extends GameBase {
     const n = tr.nearest(r.x, r.z, r.idx);
     r.idx = n.i;
     const inGap = tr.inGap(n.d);
+    r.onIce = onIce(this.features, n.d);
     const inMain = Math.abs(n.lat) <= tr.wall + 0.3 && !inGap;
     let zone = inMain ? 'main' : 'off', sc = null, scn = null;
     if (!inMain) {
@@ -971,11 +979,15 @@ export default class Kart extends GameBase {
     r.laneT -= dt;
     if (r.laneT <= 0) { r.lane = (Math.random() - 0.5) * 1.3; r.laneT = 2 + Math.random() * 3; }
     const look = 9 + Math.max(0, r.speed) * 0.55;
-    for (const o of this.objs) {
-      if (o.type !== 'oil' && o.type !== 'mine') continue;
+    const obstacles = [...this.objs.filter((o) => o.type === 'oil' || o.type === 'mine')];
+    for (const h of this.features?.hazards ?? []) { // 트랙 장애물도 피함
+      if (h.type === 'geyser' && h.danger) obstacles.push({ x: h.x, z: h.z, wide: true });
+      else if (h.type === 'boulder' && h.pos) obstacles.push({ ...h.pos, wide: true });
+    }
+    for (const o of obstacles) {
       const dx = o.x - r.x, dz = o.z - r.z;
       const ahead = dx * Math.sin(r.h) + dz * Math.cos(r.h);
-      if (ahead > 0 && ahead < 22 && Math.abs(dx * Math.cos(r.h) - dz * Math.sin(r.h)) < 3 && Math.random() < r.skill) { r.lane = -Math.sign(r.lane || 1) * 0.9; r.laneT = 1.5; }
+      if (ahead > 0 && ahead < 22 && Math.abs(dx * Math.cos(r.h) - dz * Math.sin(r.h)) < (o.wide ? 4.5 : 3) && Math.random() < r.skill) { r.lane = -Math.sign(r.lane || 1) * 0.9; r.laneT = 1.5; }
     }
     // 지름길: 입구에 다가가면 탈지 말지 결정 (실력·부스트 여부)
     for (let k = 0; k < tr.shortcuts.length; k++) {
