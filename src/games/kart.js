@@ -41,6 +41,25 @@ const ghostKey = (track, laps) => `miniigame:kart-ghost:${track}:${laps}`;
 function loadGhost(track, laps) { try { return JSON.parse(localStorage.getItem(ghostKey(track, laps))); } catch { return null; } }
 function saveGhost(track, laps, g) { try { localStorage.setItem(ghostKey(track, laps), JSON.stringify(g)); } catch { /* 저장 공간 부족 등 */ } }
 
+// ---- WebGL 렌더러 하나를 돌려 씀 ----
+const rendererPool = [];
+function takeRenderer(owner) {
+  const free = rendererPool.find((r) => !r.owner && !r.getContext().isContextLost());
+  if (free) { free.owner = owner; return free; }
+  try {
+    const r = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    r.owner = owner;
+    rendererPool.push(r);
+    return r;
+  } catch { return null; }
+}
+function releaseRenderer(r, owner) {
+  if (r.owner !== owner) return;
+  r.owner = null;
+  r.renderLists.dispose();
+  if (r.getContext().isContextLost()) { rendererPool.splice(rendererPool.indexOf(r), 1); r.dispose(); }
+}
+
 export default class Kart extends GameBase {
   static meta = {
     id: 'kart',
@@ -78,18 +97,22 @@ export default class Kart extends GameBase {
 
   // ---------------- 3D 기본 구성 ----------------
   setup3D() {
-    try {
-      this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    } catch {
-      this.noGL = true;
-      return;
-    }
+    // 렌더러(WebGL 컨텍스트)는 하나를 계속 다시 씀: 다른 사이트에서 게임을 여러 번 붙였다 떼어도
+    // 컨텍스트가 쌓이지 않음 (브라우저는 보통 16개가 넘으면 오래된 것부터 꺼서 화면이 깨짐)
+    this.renderer = takeRenderer(this);
+    if (!this.renderer) { this.noGL = true; return; }
     const cv = this.renderer.domElement;
     cv.className = 'mg-3d';
     this.$screen.insertBefore(cv, this.canvas);
+    // 그래픽 장치가 잠깐 끊기면(모바일 탭 전환·드라이버 재시작) 다시 연결될 때까지 기다렸다 복구
+    this._onLost = (e) => { e.preventDefault(); this.glLost = performance.now(); };
+    this._onRestored = () => { this.glLost = 0; this.ratio = undefined; const r = this.$screen.getBoundingClientRect(); if (r.width) this.onResize(r.width, r.height); };
+    cv.addEventListener('webglcontextlost', this._onLost);
+    cv.addEventListener('webglcontextrestored', this._onRestored);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene();
-    this.camera3 = new THREE.PerspectiveCamera(68, W / H, 0.1, 1500);
+    // near 를 너무 작게 하면 먼 곳의 깊이 정밀도가 떨어져 도로·연석이 깜빡이며 깨져 보임 → 0.5
+    this.camera3 = new THREE.PerspectiveCamera(68, W / H, 0.5, 1500);
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 1.1);
     this.sun = new THREE.DirectionalLight(0xffffff, 1.6);
     this.sun.position.set(80, 140, 40);
@@ -119,8 +142,13 @@ export default class Kart extends GameBase {
   onDestroy() {
     if (!this.renderer) return;
     this.scene.traverse((o) => { o.geometry?.dispose?.(); if (o.material) [].concat(o.material).forEach((m) => { m.map?.dispose?.(); m.dispose?.(); }); });
-    this.renderer.dispose();
-    this.renderer.forceContextLoss?.();
+    if (this.scene.background?.dispose) this.scene.background.dispose();
+    const cv = this.renderer.domElement;
+    cv.removeEventListener('webglcontextlost', this._onLost);
+    cv.removeEventListener('webglcontextrestored', this._onRestored);
+    cv.remove();
+    releaseRenderer(this.renderer, this); // 지우지 않고 다음 카트 게임이 다시 씀
+    this.renderer = null;
   }
 
   loadTrack(idx) {
@@ -1294,7 +1322,10 @@ export default class Kart extends GameBase {
     this.idleSkip = ((this.idleSkip ?? 0) + 1) % 3;
     const idle = this.state !== 'playing';
     if (!idle || this.idleSkip === 0) {
-      this.renderer.render(this.scene, this.camera3);
+      if (this.glLost) {
+        // 3초 넘게 복구가 안 되면 직접 다시 연결 요청
+        if (performance.now() - this.glLost > 3000) { this.glLost = performance.now(); this.renderer.forceContextRestore?.(); }
+      } else this.renderer.render(this.scene, this.camera3);
       if (!idle) this.adaptResolution();
     }
     if (this.phase === 'select') return this.drawSelect(ctx);

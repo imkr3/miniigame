@@ -55,6 +55,14 @@ const CSS = `
   user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
   background:var(--mg-panel);border-radius:14px;overflow:hidden;box-sizing:border-box}
 .mg-root *{box-sizing:border-box}
+/* 다른 사이트에 붙였을 때 그 사이트 CSS 영향 줄이기 */
+.mg-root{line-height:normal;text-align:left;letter-spacing:normal;word-spacing:normal;text-transform:none;font-size:16px;direction:ltr;text-shadow:none}
+.mg-root .mg-screen canvas{max-width:none!important;max-height:none!important;min-width:0;margin:0!important;padding:0!important;border:0!important;border-radius:0;box-shadow:none;outline:none}
+.mg-root button{font-family:inherit;letter-spacing:normal;text-transform:none;margin:0;min-width:0;min-height:0;box-shadow:none}
+.mg-root img,.mg-root svg{max-width:none}
+:where(.mg-root) *{line-height:inherit;letter-spacing:inherit;word-spacing:inherit;text-transform:inherit}
+:where(.mg-root) div,:where(.mg-root) span,:where(.mg-root) h2,:where(.mg-root) ol,:where(.mg-root) li{padding:0;margin:0}
+:where(.mg-root) button{padding:0;background-image:none;text-shadow:none}
 .mg-root{position:relative}
 .mg-settings{position:absolute;inset:0;z-index:5;background:#0b0d12;overflow:auto;-webkit-overflow-scrolling:touch;
   display:flex;justify-content:center;padding:14px;animation:mg-fade .15s}
@@ -139,12 +147,19 @@ const CSS = `
   .mg-btns button{height:52px;min-width:52px}.mg-lr button{height:52px;width:60px}.mg-pad{padding-top:6px}}
 `;
 
-function injectStyle() {
-  if (document.getElementById('mg-style')) return;
+/**
+ * 스타일 넣기: 보통은 <head> 에 한 번, 격리 모드(Shadow DOM)면 그 안에
+ * @param {Node} [where] 스타일을 넣을 곳 (ShadowRoot)
+ * @param {string} [id] 중복 방지 id
+ * @param {string} [css]
+ */
+export function injectStyle(where = document.head, id = 'mg-style', css = CSS) {
+  const scope = where.getElementById ? where : where.ownerDocument ?? document;
+  if ((where.querySelector?.(`#${id}`)) || (where === document.head && scope.getElementById?.(id))) return;
   const s = document.createElement('style');
-  s.id = 'mg-style';
-  s.textContent = CSS;
-  document.head.appendChild(s);
+  s.id = id;
+  s.textContent = css;
+  where.appendChild(s);
 }
 
 function loadJSON(key, fallback) {
@@ -211,7 +226,6 @@ export class GameBase {
   constructor(container, opts = {}) {
     const { width, height, fit = false, maxWidth, controls = 'auto', onEvent, onExit } = opts;
     this.opts = opts; // server: 멀티플레이 서버 주소 등
-    injectStyle();
     const C = this.constructor;
     this.meta = C.meta;
     this.defaultBindings = { ...DEFAULT_BINDINGS, ...C.bindings };
@@ -353,6 +367,7 @@ export class GameBase {
     this.time = 0;
     this.fx = [];
     this.musicId = undefined;
+    this._booted = true; // 붙이자마자 start() 를 불러도 첫 프레임에서 다시 초기화되지 않게
     this.init();
     this.state = 'playing';
     this._hideOverlay();
@@ -410,7 +425,9 @@ export class GameBase {
     window.removeEventListener('blur', this._onBlur);
     document.removeEventListener('pointerdown', this._onDocPointer);
     document.removeEventListener('visibilitychange', this._onVisibility);
+    this._io?.disconnect();
     this.root.remove();
+    this.hostEl?.remove();
     if (activeGame === this) activeGame = null;
   }
 
@@ -440,7 +457,21 @@ export class GameBase {
         </div>
       </div>
       <div class="mg-pad"></div>`;
-    container.appendChild(root);
+    // isolate: true → Shadow DOM 안에 넣어서 붙이는 사이트의 CSS 와 완전히 분리
+    if (this.opts.isolate && container.attachShadow) {
+      const host = document.createElement('div');
+      host.className = 'mg-host';
+      host.style.cssText = 'display:block;width:100%;height:100%';
+      container.appendChild(host);
+      this.styleHost = host.attachShadow({ mode: 'open' });
+      this.hostEl = host;
+      injectStyle(this.styleHost);
+      this.styleHost.appendChild(root);
+    } else {
+      this.styleHost = document.head;
+      injectStyle();
+      container.appendChild(root);
+    }
     this.root = root;
     root.mgGame = this; // 디버그·테스트용 핸들 (document.querySelector('.mg-root').mgGame)
     const $ = (s) => root.querySelector(s);
@@ -473,6 +504,14 @@ export class GameBase {
     this._showOverlay(this.meta.title,
       `<p>${esc(this.meta.description)}</p>{{controls}}${this.best ? `<p class="mg-new">🏆 내 최고 ${esc(this.recordFmt(this.best))}</p>` : ''}`, 'start');
 
+    // 붙인 페이지에서 화면 밖으로 스크롤되면 자동 일시정지 (멀티플레이 중 제외)
+    if (window.IntersectionObserver) {
+      this._io = new IntersectionObserver(([en]) => {
+        this.offscreen = !en.isIntersecting;
+        if (this.offscreen && this.state === 'playing' && !this.noAutoPause) this.pause();
+      });
+      this._io.observe(root);
+    }
     this._ro = new ResizeObserver(() => this._layout());
     this._ro.observe(this.$stage);
     this._ro.observe(this.root);
@@ -781,7 +820,8 @@ export class GameBase {
     };
     this._onKeyUp = (e) => { const a = this.keymap[e.code]; if (a) this.keys.delete(a); };
     this._onDocPointer = (e) => {
-      if (this.root.contains(e.target)) activeGame = this;
+      const path = e.composedPath?.() ?? [e.target]; // Shadow DOM 안 클릭도 인식
+      if (path.includes(this.root) || this.root.contains(e.target)) activeGame = this;
       else if (activeGame === this) { activeGame = null; this.keys.clear(); }
     };
     // 멀티플레이 중(noAutoPause)에는 다른 창으로 가도 멈추지 않음

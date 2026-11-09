@@ -1,6 +1,7 @@
 // 공통 멀티플레이 로비 화면 (게임 화면 위에 뜨는 패널)
 // 게임은 static multiplayer = { min, max, label } 과 lobbyConfig() → { settings: [...], info: [...] }, startMulti(net, start) 를 제공
 import { NetClient, resolveServer } from './net.js';
+import { injectStyle } from '../engine.js';
 
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
@@ -33,9 +34,7 @@ export class Lobby {
     this.game = game;
     this.name = load('miniigame:name', '');
     this.info = load(`miniigame:${game.meta.id}:mpinfo`, null);
-    if (!document.getElementById('mg-lobby-style')) {
-      const s = document.createElement('style'); s.id = 'mg-lobby-style'; s.textContent = CSS; document.head.appendChild(s);
-    }
+    injectStyle(game.styleHost ?? document.head, 'mg-lobby-style', CSS); // 격리 모드면 Shadow DOM 안에
   }
 
   get net() { return this.game.net; }

@@ -177,7 +177,8 @@ export class Track {
       }
     });
     groundTex.repeat.set(size / 16, size / 16);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshLambertMaterial({ map: groundTex }));
+    // 겹친 면이 멀리서 깜빡이지 않도록 깊이 보정(polygonOffset): 바닥은 뒤로, 연석·발판 등은 앞으로
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshLambertMaterial({ map: groundTex, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 4 }));
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(cx, -0.02, cz);
     g.add(ground);
@@ -212,11 +213,11 @@ export class Track {
       ctx.fillStyle = css(th.curbA); ctx.fillRect(0, 0, w, h / 2);
       ctx.fillStyle = css(th.curbB); ctx.fillRect(0, h / 2, w, h / 2);
     });
-    const curbMat = new THREE.MeshLambertMaterial({ map: curbTex, side: THREE.DoubleSide });
+    const curbMat = new THREE.MeshLambertMaterial({ map: curbTex, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     strip(this.hw, this.hw + this.curb, 0.03, 0.03, curbMat, 4);
     strip(-this.hw - this.curb, -this.hw, 0.03, 0.03, curbMat, 4);
     // 갓길 (감속 구간) - 도로와 같은 높이
-    const shoulderMat = new THREE.MeshLambertMaterial({ map: groundTex, side: THREE.DoubleSide });
+    const shoulderMat = new THREE.MeshLambertMaterial({ map: groundTex, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     strip(this.hw + this.curb, this.wall, 0.01, 0.01, shoulderMat, 16);
     strip(-this.wall, -this.hw - this.curb, 0.01, 0.01, shoulderMat, 16);
 
@@ -287,7 +288,7 @@ export class Track {
     const checker = canvasTexture(64, 16, (ctx) => {
       for (let i = 0; i < 16; i++) for (let j = 0; j < 4; j++) { ctx.fillStyle = (i + j) % 2 ? '#111' : '#fff'; ctx.fillRect(i * 4, j * 4, 4, 4); }
     }, false);
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(this.hw * 2, 2), new THREE.MeshBasicMaterial({ map: checker }));
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(this.hw * 2, 2), new THREE.MeshBasicMaterial({ map: checker, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     line.rotation.order = 'YXZ';
     line.rotation.set(-Math.PI / 2, h0, 0);
     line.position.set(s0.x, s0.y + 0.04, s0.z);
@@ -312,7 +313,7 @@ export class Track {
     }, false);
     this.boostPads = this.def.boosts.map((f) => {
       const p = this.at(f * this.length);
-      const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.MeshBasicMaterial({ map: arrowTex }));
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.MeshBasicMaterial({ map: arrowTex, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
       pad.rotation.order = 'YXZ';
       pad.rotation.set(-Math.PI / 2, Math.atan2(p.tx, p.tz) + Math.PI, 0); // 화살표가 진행 방향을 가리키도록
       pad.position.set(p.x, p.y + 0.05, p.z);
@@ -418,7 +419,7 @@ export class Track {
         ctx.fillStyle = '#f59e0b'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = '#fef08a';
         for (const y of [8, 34]) { ctx.beginPath(); ctx.moveTo(8, y + 22); ctx.lineTo(32, y); ctx.lineTo(56, y + 22); ctx.lineTo(44, y + 22); ctx.lineTo(32, y + 12); ctx.lineTo(20, y + 22); ctx.fill(); }
       }, false);
-      const pad = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: arrowTex }));
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: arrowTex, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
       pad.rotation.order = 'YXZ';
       pad.rotation.set(-Math.PI / 2, Math.atan2(m.tx, m.tz) + Math.PI, 0);
       pad.position.set(m.x, m.y + 0.05, m.z);

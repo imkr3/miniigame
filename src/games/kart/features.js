@@ -308,7 +308,7 @@ export function buildFeatures(track, g, quality = 1) {
         for (let i = 0; i < 9; i++) { const x = Math.random() * w, y = Math.random() * h; c.beginPath(); c.moveTo(x, y); c.lineTo(x + rnd(-14, 14), y + rnd(-14, 14)); c.stroke(); }
       });
       iceTex.wrapS = iceTex.wrapT = THREE.RepeatWrapping;
-      const len = hz.len ?? 36, mat = new THREE.MeshBasicMaterial({ map: iceTex, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+      const len = hz.len ?? 36, mat = new THREE.MeshBasicMaterial({ map: iceTex, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       const uv = [];
       const pos = [], idx = [];
       const n = Math.round(len / 2);

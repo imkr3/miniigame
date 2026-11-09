@@ -204,10 +204,22 @@ python3 -m http.server 8000
     controls: 'auto',    // 화면 버튼: auto(터치 기기만) | always | never
     onExit: () => {},    // 지정하면 HUD에 '←' 나가기 버튼 표시
     onEvent: (e) => console.log(e), // { type: 'start'|'pause'|'resume'|'gameover', game, score, best? }
+    isolate: true,       // 권장: Shadow DOM 안에 넣어서 사이트 CSS 와 완전히 분리
   });
-  // game.pause(); game.resume(); game.restart(); game.destroy();
+  // game.start(); game.pause(); game.resume(); game.restart(); game.destroy();
 </script>
 ```
+
+#### 다른 사이트에 붙일 때 참고
+
+- **CSS 충돌**: `isolate: true` 면 게임 화면이 Shadow DOM 안에 들어가서 사이트 CSS(`* {}`, `button {}`, `canvas {}` 등)의 영향을 받지 않습니다. 끄더라도 흔한 전역 스타일(줄 간격·글자 간격·버튼 패딩·canvas 크기/테두리)은 막아 둡니다. 게임 스타일은 모두 `.mg-` 로 시작해서 사이트 쪽을 건드리지 않습니다.
+- **여러 번 붙였다 떼기**: 다 쓴 게임은 꼭 `game.destroy()` (이벤트·음악·WebGL 정리). 카트의 3D 렌더러는 하나를 계속 다시 써서, 페이지 이동 없이 게임을 여러 번 바꿔도 WebGL 컨텍스트가 쌓이지 않습니다 (브라우저 한도 초과로 화면이 깨지는 문제 방지).
+- **그래픽 장치 끊김**: 모바일에서 탭을 옮기거나 GPU 드라이버가 재시작돼 WebGL 이 끊기면 자동으로 다시 연결해 그립니다.
+- **키 입력**: 마지막으로 클릭한 게임만 키를 받고, 그 게임이 쓰는 키만 막습니다 (페이지 스크롤 등 나머지는 그대로). 게임 밖을 클릭하면 키를 놓아줍니다.
+- **화면 밖**: 게임이 스크롤로 완전히 가려지면 자동 일시정지 (멀티플레이 중 제외), 탭을 숨겨도 일시정지.
+- **소리**: 브라우저 정책상 첫 클릭/키 입력 뒤부터 납니다. 🔊 버튼·설정 볼륨은 브라우저에 저장.
+- **저장**: 기록·설정은 `localStorage` 의 `miniigame:` 키에 저장 (사용 불가 환경이면 저장만 생략하고 정상 동작).
+- **경로**: 모듈은 상대 경로로만 서로 불러오므로 `src/` 폴더째 원하는 위치에 두면 됩니다 (three.js 포함, 외부 CDN 없음).
 
 ## 멀티플레이 (블록 낙하 배틀 · 카트 레이스)
 
