@@ -750,6 +750,12 @@ export default class Kart extends GameBase {
     if (!inMain) {
       r.scIdx = r.scIdx ?? [];
       for (let k = 0; k < tr.shortcuts.length; k++) {
+        // 본선에서 막 들어오는 중이면 가까운 쪽 끝(입구/출구)부터 찾기: 입구와 출구가 가까이 붙은 지름길에서 반대쪽 끝으로 잘못 잡히던 문제
+        if (r.zone === 'main' || r.zone === undefined) {
+          const sk = tr.shortcuts[k], n = sk.samples.length;
+          if (tr.inRange(r.lastD, sk.dFrom - 40, sk.dFrom + 40)) r.scIdx[k] = 0;
+          else if (tr.inRange(r.lastD, sk.dTo - 40, sk.dTo + 40)) r.scIdx[k] = n - 1;
+        }
         const q = tr.nearestShortcut(k, r.x, r.z, r.scIdx[k]);
         r.scIdx[k] = q.i;
         // 옆 거리(lat)뿐 아니라 실제 거리도 확인 (멀리 떨어진 다른 지름길로 잘못 인식하던 문제)
@@ -758,6 +764,9 @@ export default class Kart extends GameBase {
       }
     }
     if (zone === 'off' && inGap) zone = 'gap';
+    // 지름길·갈림길 위에서는 본선 검색 기준점을 '지금 진행한 만큼의 본선 위치'로 옮겨 둠
+    // (출구가 본선의 다른 구간 옆에 있을 때 엉뚱한 구간으로 인식해 코스 밖 처리되던 문제)
+    if (sc) r.idx = tr.at(scn.mainD).i;
     const groundY = zone === 'main' ? n.y : sc ? scn.y : (tr.def.floating || zone === 'gap' ? -Infinity : 0);
     const groundS = zone === 'main' ? n.s : sc ? scn.s : n.s;
     r.surface = zone === 'main' ? (Math.abs(n.lat) > tr.hw + tr.curb * 0.6 ? st.offroad : 1) : sc ? sc.surface : 0.45;
