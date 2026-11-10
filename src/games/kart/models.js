@@ -252,6 +252,16 @@ export function buildItemMesh(type) {
   } else if (type === 'smoke') { // 연막: 회색 구름 덩어리
     const sm = new THREE.MeshLambertMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.75, depthWrite: false });
     for (const [x, y, z, r] of [[0, 1.6, 0, 2.2], [1.6, 1.2, 0.6, 1.6], [-1.5, 1.3, -0.4, 1.7], [0.4, 2.6, -0.8, 1.4], [-0.6, 0.9, 1.4, 1.3]]) g.add(mesh(new THREE.SphereGeometry(r, 10, 8), sm, x, y, z));
+  } else if (type === 'cone') { // 고깔
+    g.add(mesh(new THREE.BoxGeometry(1.1, 0.12, 1.1), mat(0x1f2937), 0, 0.06, 0));
+    g.add(mesh(new THREE.ConeGeometry(0.45, 1.3, 12), mat(0xf97316), 0, 0.75, 0));
+    g.add(mesh(new THREE.CylinderGeometry(0.27, 0.33, 0.22, 12), mat(0xffffff), 0, 0.85, 0));
+  } else if (type === 'glue') { // 끈끈이 웅덩이
+    const m = mesh(new THREE.CircleGeometry(2.2, 20), new THREE.MeshLambertMaterial({ color: 0xd97706, transparent: true, opacity: 0.85 }), 0, 0.06, 0); m.rotation.x = -Math.PI / 2; g.add(m);
+    for (const [x, z, r] of [[0.6, 0.4, 0.35], [-0.8, -0.3, 0.28], [0.1, -0.9, 0.22]]) g.add(mesh(new THREE.SphereGeometry(r, 8, 6), mat(0xfbbf24), x, 0.08, z));
+  } else if (type === 'tornado') { // 회오리: 위로 갈수록 넓어지는 반투명 고리
+    const tm = new THREE.MeshBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
+    for (let i = 0; i < 6; i++) put(g, mesh(new THREE.TorusGeometry(0.5 + i * 0.32, 0.12, 6, 18), tm, Math.sin(i) * 0.2, 0.4 + i * 0.6, 0)).rotation.x = Math.PI / 2;
   } else if (type === 'rocket' || type === 'homing') {
     const color = type === 'rocket' ? 0xef4444 : 0x8b5cf6;
     const bodyM = mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.2, 10), mat(color), 0, 0.7, 0); bodyM.rotation.x = Math.PI / 2; g.add(bodyM);

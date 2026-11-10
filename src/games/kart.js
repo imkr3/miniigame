@@ -13,6 +13,13 @@ import { buildFeatures, animateFeatures, updateHazards, updateRings, onIce } fro
 const W = 640, H = 360;
 const HOP_V = 4.4, GRAV = 18;
 const DRIFT_LV = [0.6, 1.2, 1.9];             // 드리프트 단계 시간
+// 아이템에 맞았을 때: 회전 시간 · 남는 속도 비율 · 튀어 오르는 세기
+const HIT = {
+  default: { spin: 1.2, keep: 0.25, vy: 6.5 }, oil: { spin: 0.9, keep: 0.45 }, cone: { spin: 0.8, keep: 0.5 },
+  tornado: { spin: 1.4, keep: 0.3, vy: 9 }, bumper: { spin: 0.55, keep: 0.6 }, laser: { spin: 1, keep: 0.35, vy: 3.5 },
+};
+const OBJ_R = { oil: 1.9, mine: 1.6, smoke: 4.2, cone: 1.3, glue: 2.3, tornado: 2.6 }; // 아이템 물체 판정 반지름
+const SLOW_R = 11, LASER_R = 70;
 const DRIFT_BOOST = [0, 0.7, 1.1, 1.6];       // 단계별 미니 터보 시간
 const TURBO_NAMES = ['', '미니 터보!', '슈퍼 터보!', '울트라 터보!'];
 const SPARK_COLORS = [0xffffff, 0x60a5fa, 0xfb923c, 0xc084fc];
@@ -260,7 +267,7 @@ export default class Kart extends GameBase {
         if (o) { o.life = 0; if (o.type !== 'oil') this.explode(o); }
         break;
       }
-      case 'bump': { const r = this.byId(d.to); if (r && !r.remote) this.hitRacer(r, 'turbo'); break; }
+      case 'bump': { const r = this.byId(d.to); if (r && !r.remote) this.hitRacer(r, d.kind ?? 'turbo'); break; }
       case 'box': { const b = this.boxes[d.i]; if (b) { b.respawn = 2.2; b.mesh.visible = false; } break; }
     }
   }
@@ -275,7 +282,7 @@ export default class Kart extends GameBase {
 
   encodeRacer(r) {
     return [r.id, r2(r.x), r2(r.y), r2(r.z), r2(r.h), Math.round(r.speed * 10) / 10, r2(r.slip), r.drifting ? this.driftLevel(r) + 1 : 0,
-      r.gliding ? 1 : 0, r.boostT > 0 ? 1 : 0, r.spinT > 0 ? 1 : 0, (r.shieldT > 0 ? 1 : 0) | (r.invT > 0 ? 2 : 0),
+      r.gliding ? 1 : 0, r.boostT > 0 ? 1 : 0, r.spinT > 0 ? 1 : 0, (r.shieldT > 0 ? 1 : 0) | (r.invT > 0 ? 2 : 0) | (r.bumperT > 0 ? 4 : 0) | (r.slowfieldT > 0 ? 8 : 0),
       Math.round(r.progress * 10) / 10, r.lap, r.finished ? r2(r.finishTime) : 0, r.trick ? 1 : 0, r.driftDir];
   }
 
@@ -307,7 +314,7 @@ export default class Kart extends GameBase {
       r.gliding = !!n.gl; r.grounded = !n.gl;
       r.boostT = n.b ? 0.3 : 0;
       if (n.sp) { r.spinT = 0.2; r.spinA += dt * 14; } else r.spinT = 0;
-      r.shieldT = n.sh & 1 ? 1 : 0; r.invT = n.sh & 2 ? 1 : 0;
+      r.shieldT = n.sh & 1 ? 1 : 0; r.invT = n.sh & 2 ? 1 : 0; r.bumperT = n.sh & 4 ? 1 : 0; r.slowfieldT = n.sh & 8 ? 1 : 0;
       r.trick = !!n.tr; r.trickA = r.trick ? r.trickA + dt * 16 : 0;
       r.idx = this.track.nearest(r.x, r.z, r.idx).i;
     }
@@ -321,7 +328,7 @@ export default class Kart extends GameBase {
     mesh.rotation.y = d.h ?? 0;
     this.dyn.add(mesh);
     const owner = this.byId(d.owner) ?? { id: d.owner };
-    this.objs.push({ ...d, owner, target: d.target ? this.byId(d.target) : null, mesh, idx: this.track.nearest(d.x, d.z).i, bounces: 0 });
+    this.objs.push({ ...d, owner, target: d.target ? this.byId(d.target) : null, mesh, idx: this.track.nearest(d.x, d.z).i, bounces: 0, t: 0 });
   }
 
   explode(o) {
@@ -687,8 +694,18 @@ export default class Kart extends GameBase {
     const boosting = r.boostT > 0;
     let maxS = st.maxSpeed * (r.rubber ?? 1);
     // 아이템 상태: 냉동(느려짐) · 연막(앞이 안 보임) · 자석(앞 카트 쪽으로 끌려감)
-    for (const k of ['freezeT', 'blindT', 'magnetT', 'smokeCd']) if (r[k] > 0) r[k] = Math.max(0, r[k] - dt);
+    for (const k of ['freezeT', 'blindT', 'magnetT', 'smokeCd', 'glueT', 'bumperT', 'slowfieldT', 'tornCd', 'bumpCd']) if (r[k] > 0) r[k] = Math.max(0, r[k] - dt);
     if (r.freezeT > 0) maxS *= 0.55;
+    if (r.glueT > 0) { maxS *= 0.5; r.speed = Math.min(r.speed, maxS + 4); } // 끈끈이: 바퀴가 달라붙음
+    // 감속장: 다른 카트가 펼친 보라색 돔 안에 있으면 느려짐
+    for (const o of this.racers) {
+      if (o === r || !(o.slowfieldT > 0) || r.invT > 0) continue;
+      if ((o.x - r.x) ** 2 + (o.z - r.z) ** 2 < SLOW_R * SLOW_R && Math.abs(o.y - r.y) < 6) {
+        maxS *= 0.68;
+        if (Math.random() < 0.3) this.sparks.emit(r.x, r.y + 1.2, r.z, 0xa78bfa, (Math.random() - 0.5) * 2, 0.6, (Math.random() - 0.5) * 2, 0.4);
+        break;
+      }
+    }
     if (r.blindT > 0) maxS *= 0.85;
     if (r.magnetT > 0) {
       const ahead = this.racers.find((o) => o.rank === r.rank - 1);
@@ -1030,8 +1047,19 @@ export default class Kart extends GameBase {
         f.material.color.setHex(r.invT > 0 ? 0xfde047 : r.boostT > 1.2 ? 0xc084fc : r.boostT > 0.8 ? 0xfb923c : 0x60a5fa);
       }
     }
-    m.shield.visible = r.shieldT > 0 || r.invT > 0 || r.freezeT > 0;
-    if (m.shield.visible) { m.shield.material.color.setHex(r.invT > 0 ? 0xfde047 : r.freezeT > 0 ? 0xe0f2fe : 0x60a5fa); m.shield.material.opacity = 0.18 + Math.sin(performance.now() / 120) * 0.06; }
+    m.shield.visible = r.shieldT > 0 || r.invT > 0 || r.freezeT > 0 || r.bumperT > 0 || r.glueT > 0;
+    if (m.shield.visible) { m.shield.material.color.setHex(r.invT > 0 ? 0xfde047 : r.freezeT > 0 ? 0xe0f2fe : r.bumperT > 0 ? 0x22c55e : r.glueT > 0 ? 0xf59e0b : 0x60a5fa); m.shield.material.opacity = (r.bumperT > 0 ? 0.3 : 0.18) + Math.sin(performance.now() / 120) * 0.06; }
+    if (r.slowfieldT > 0) { // 감속장 돔
+      if (!r.dome) {
+        r.dome = new THREE.Mesh(new THREE.SphereGeometry(SLOW_R, 22, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+          new THREE.MeshBasicMaterial({ color: 0x8b5cf6, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide }));
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(SLOW_R, 0.18, 6, 48), new THREE.MeshBasicMaterial({ color: 0xc4b5fd }));
+        ring.rotation.x = Math.PI / 2; ring.position.y = 0.4; r.dome.add(ring);
+      }
+      if (r.dome.parent !== this.dyn) this.dyn.add(r.dome);
+      r.dome.visible = true; r.dome.position.set(r.x, r.y - 0.3, r.z); r.dome.rotation.y += dt * 0.8;
+      r.dome.material.opacity = 0.17 + Math.sin(performance.now() / 200) * 0.05;
+    } else if (r.dome) r.dome.visible = false;
     if (r.grounded) r.lastGroundY = r.y;
   }
 
@@ -1123,6 +1151,12 @@ export default class Kart extends GameBase {
     else if (type === 'smoke') use = behind || Math.random() < 0.2;
     else if (type === 'rocket3') use = !!front || Math.random() < 0.25;
     else if (type === 'freeze' || type === 'magnet') use = r.rank > 1;
+    else if (type === 'barricade' || type === 'glue') use = behind || Math.random() < 0.15;
+    else if (type === 'tornado') use = !!front || Math.random() < 0.25;
+    else if (type === 'laser') use = !!this.laserTarget(r) || Math.random() < 0.08;
+    else if (type === 'warp') use = !this.track.inGap(r.lastD + 45) && (typeof r.zone !== 'number');
+    else if (type === 'bumper') use = this.racers.some((o) => o !== r && (o.x - r.x) ** 2 + (o.z - r.z) ** 2 < 200) || Math.random() < 0.15;
+    else if (type === 'slowfield') use = behind || this.racers.some((o) => o !== r && (o.x - r.x) ** 2 + (o.z - r.z) ** 2 < SLOW_R * SLOW_R);
     else if (type === 'spring') use = this.objs.some((o) => o.owner !== r && (o.x - r.x) ** 2 + (o.z - r.z) ** 2 < 400) || Math.random() < 0.3;
     else use = true;
     if (use) this.useItem(r);
@@ -1134,16 +1168,17 @@ export default class Kart extends GameBase {
     if (!r.item || r.roll > 0 || r.spinT > 0 || this.phase === 'countdown') return;
     const type = r.item;
     const fx = Math.sin(r.h), fz = Math.cos(r.h);
-    const spawn = (kind, dist, extra = {}) => {
+    const spawn = (kind, dist, extra = {}, side = 0) => {
       const mesh = buildItemMesh(kind);
-      const o = { type: kind, x: r.x + fx * dist, z: r.z + fz * dist, y: this.track.nearest(r.x + fx * dist, r.z + fz * dist, r.idx).y, owner: r, life: 40, arm: 0.4, mesh, idx: r.idx, ...extra };
+      const sx = r.x + fx * dist + fz * side, sz = r.z + fz * dist - fx * side;
+      const o = { type: kind, x: sx, z: sz, y: this.track.nearest(sx, sz, r.idx).y, owner: r, life: 40, arm: 0.4, mesh, idx: r.idx, ...extra };
       mesh.position.set(o.x, o.y, o.z);
       mesh.rotation.y = r.h;
       this.dyn.add(mesh);
       this.objs.push(o);
       if (this.multi) {
         o.id = `${this.multi.me}:${this.multi.seq++}`;
-        this.multi.net.relay({ k: 'obj', o: { id: o.id, type: kind, x: r2(o.x), y: r2(o.y), z: r2(o.z), h: r2(r.h), vx: o.vx, vz: o.vz, life: o.life, arm: o.arm, owner: r.id, target: o.target?.id } });
+        this.multi.net.relay({ k: 'obj', o: { id: o.id, type: kind, x: r2(o.x), y: r2(o.y), z: r2(o.z), h: r2(r.h), vx: o.vx, vz: o.vz, life: o.life, arm: o.arm, owner: r.id, target: o.target?.id, d0: o.d0, seed: o.seed } });
       }
       return o;
     };
@@ -1175,6 +1210,18 @@ export default class Kart extends GameBase {
         break;
       case 'magnet': r.magnetT = 3.5; if (r.isPlayer) this.sound('bonus'); break;
       case 'turbo': r.boostT = Math.max(r.boostT, 3.2); r.invT = 3.2; this.sound('levelup'); break;
+      case 'barricade': // 뒤에 고깔 3개 일렬
+        for (const sd of [-3.4, 0, 3.4]) spawn('cone', -3.2, { life: 30, arm: 0.6 }, sd);
+        this.sound('lock'); break;
+      case 'glue': spawn('glue', -3, { life: 18, arm: 0.6 }); this.sound('lock'); break;
+      case 'tornado': { // 코스를 따라 앞으로 굽이치며 나아가는 회오리
+        const o = spawn('tornado', 4, { life: 8, arm: 0.5, d0: r2(r.lastD + 5), seed: r2(Math.random() * 6), t: 0 });
+        this.moveTornado(o); this.sound('power'); break;
+      }
+      case 'warp': this.warp(r); break;
+      case 'bumper': r.bumperT = 7; if (r.isPlayer) { this.sound('bonus'); this.msg = { text: '🛞 고무 범퍼! 부딪혀서 튕겨내기', t: 1 }; } break;
+      case 'slowfield': r.slowfieldT = 5; this.sound('lock'); if (r.isPlayer) this.msg = { text: '⏳ 감속장!', t: 0.9 }; break;
+      case 'laser': this.fireLaser(r); break;
     }
     r.uses--;
     if (r.uses <= 0) r.item = null;
@@ -1195,10 +1242,11 @@ export default class Kart extends GameBase {
       if (r.isPlayer) { this.msg = { text: '방어막으로 막았다!', t: 1 }; this.sound('lock'); }
       return true;
     }
-    r.spinT = kind === 'oil' ? 0.9 : 1.2;
+    const H = HIT[kind] ?? HIT.default;
+    r.spinT = H.spin;
     r.drifting = false;
-    r.speed *= kind === 'oil' ? 0.45 : 0.25;
-    if (kind !== 'oil') r.vy = 6.5;
+    r.speed *= H.keep;
+    if (H.vy) { r.vy = H.vy; r.grounded = false; }
     if (r.isPlayer) { this.shake(8, 0.35); this.vibrate(150); this.sound('hit'); this.msg = { text: '앗!', t: 0.8 }; }
     return true;
   }
@@ -1229,19 +1277,34 @@ export default class Kart extends GameBase {
         const k = Math.min(1, (14 - o.life) * 2); o.mesh.scale.setScalar(0.4 + k * 0.8 + Math.sin(performance.now() / 300) * 0.05);
       } else if (o.type === 'mine') {
         o.mesh.children[o.mesh.children.length - 1].visible = Math.floor(performance.now() / 200) % 2 === 0;
+      } else if (o.type === 'tornado') {
+        o.t = (o.t ?? 0) + dt; this.moveTornado(o);
+        if (Math.random() < 0.6) this.sparks.emit(o.x + (Math.random() - 0.5) * 3, o.y + Math.random() * 3, o.z + (Math.random() - 0.5) * 3, 0xe2e8f0, (Math.random() - 0.5) * 6, 2, (Math.random() - 0.5) * 6, 0.4);
       }
       for (const r of this.racers) {
         if (o.life <= 0) break;
         if (r.remote) continue; // 다른 사람 카트의 충돌은 그 사람 화면에서 판정
         if (r === o.owner && o.arm > 0) continue;
-        const rad = o.type === 'oil' ? 1.9 : o.type === 'mine' ? 1.6 : o.type === 'smoke' ? 4.2 : 1.7;
-        if ((r.x - o.x) ** 2 + (r.z - o.z) ** 2 > rad * rad || Math.abs(r.y - o.y) > (o.type === 'smoke' ? 4 : 1.5) || r.respawnT > 0) continue;
+        const rad = OBJ_R[o.type] ?? 1.7;
+        if ((r.x - o.x) ** 2 + (r.z - o.z) ** 2 > rad * rad || Math.abs(r.y - o.y) > (o.type === 'smoke' || o.type === 'tornado' ? 4 : 1.5) || r.respawnT > 0) continue;
+        if (o.type === 'glue') { // 끈끈이: 밟고 있는 동안 계속 느려짐 (사라지지 않음)
+          if (r.invT > 0 || r.gliding) continue;
+          if (r.isPlayer && !(r.glueT > 0)) { this.msg = { text: '🍯 끈적끈적…', t: 0.8 }; this.sound('drop'); }
+          r.glueT = 0.7; r.drifting = false;
+          continue;
+        }
+        if (o.type === 'tornado') { // 회오리: 사라지지 않고 닿는 카트마다 한 번씩 날림
+          if (r === o.owner || r.tornCd > 0) continue;
+          r.tornCd = 2; this.hitRacer(r, 'tornado');
+          continue;
+        }
         if (o.type === 'smoke') { // 연막: 사라지지 않고 지나가는 카트마다 효과
           if (r.invT > 0 || (r.smokeCd ?? 0) > 0) continue;
           r.smokeCd = 1.5; r.blindT = 1.6;
           if (r.isPlayer) { this.smokeT = 2.2; this.sound('lock'); }
           continue;
         }
+        if (o.type === 'cone') for (let i = 0; i < 10; i++) this.sparks.emit(o.x, o.y + 0.8, o.z, i % 2 ? 0xf97316 : 0xffffff, (Math.random() - 0.5) * 8, Math.random() * 5, (Math.random() - 0.5) * 8, 0.5);
         if (o.type !== 'oil' || r.invT <= 0) this.hitRacer(r, o.type);
         if (o.type === 'mine' || o.type === 'rocket' || o.type === 'homing' || o.type === 'freeze') {
           this.explode(o);
@@ -1273,6 +1336,11 @@ export default class Kart extends GameBase {
           continue;
         }
         if (rem.invT > 0 && loc.invT <= 0) { this.hitRacer(loc, 'turbo'); continue; }
+        if (loc.bumperT > 0 && !(rem.bumperT > 0)) {
+          const key = rem.id, now = performance.now();
+          if (!(this.multi.bumpAt[key] > now - 1000)) { this.multi.bumpAt[key] = now; this.multi.net.relay({ k: 'bump', to: rem.id, kind: 'bumper' }); this.bumperFx(loc, rem); }
+        }
+        if (rem.bumperT > 0 && !(loc.bumperT > 0)) { this.bumpAway(loc, -nx * sg, -nz * sg, rem); continue; }
         loc.x += nx * ov * sg; loc.z += nz * ov * sg;
         if (loc.isPlayer) this.sound('bounce');
         continue;
@@ -1280,11 +1348,81 @@ export default class Kart extends GameBase {
       // 슈퍼 터보는 부딪힌 상대를 날려버림
       if (a.invT > 0 && b.invT <= 0) { this.hitRacer(b, 'turbo'); continue; }
       if (b.invT > 0 && a.invT <= 0) { this.hitRacer(a, 'turbo'); continue; }
+      // 고무 범퍼: 상대를 세게 튕겨냄
+      if (a.bumperT > 0 && !(b.bumperT > 0)) { this.bumpAway(b, nx, nz, a); continue; }
+      if (b.bumperT > 0 && !(a.bumperT > 0)) { this.bumpAway(a, -nx, -nz, b); continue; }
       const wa = a.stats.weight, wb = b.stats.weight, sum = wa + wb;
       a.x -= nx * ov * (wb / sum); a.z -= nz * ov * (wb / sum);
       b.x += nx * ov * (wa / sum); b.z += nz * ov * (wa / sum);
       if (a.isPlayer || b.isPlayer) this.sound('bounce');
     }
+  }
+
+  /** 범퍼에 맞은 카트를 (nx,nz) 쪽으로 튕겨냄 */
+  bumpAway(v, nx, nz, by) {
+    if (v.bumpCd > 0) return;
+    v.bumpCd = 0.8;
+    if (v.invT <= 0 && v.shieldT <= 0) { v.x += nx * 2.6; v.z += nz * 2.6; }
+    this.hitRacer(v, 'bumper');
+    this.bumperFx(by, v);
+  }
+
+  bumperFx(a, b) {
+    for (let i = 0; i < 12; i++) this.sparks.emit((a.x + b.x) / 2, (a.y + b.y) / 2 + 1, (a.z + b.z) / 2, i % 2 ? 0x22c55e : 0xfde047, (Math.random() - 0.5) * 9, Math.random() * 4, (Math.random() - 0.5) * 9, 0.4);
+    if (a.isPlayer || b.isPlayer) { this.sound('bounce'); this.shake(4, 0.2); }
+  }
+
+  /** 회오리 위치: 출발 거리 d0 에서 코스를 따라 22m/s, 옆으로 굽이침 (모든 화면에서 같은 계산) */
+  moveTornado(o) {
+    const tr = this.track, t = o.t ?? 0;
+    const p = tr.at(o.d0 + t * 22), lat = Math.sin(t * 2.4 + (o.seed ?? 0)) * tr.hw * 0.55;
+    o.x = p.x + p.nx * lat; o.z = p.z + p.nz * lat; o.y = p.y; o.idx = p.i;
+    o.mesh.position.set(o.x, o.y, o.z);
+    o.mesh.rotation.y += 0.35;
+    o.mesh.scale.setScalar(Math.min(1, t * 3 + 0.3) * (o.life < 0.6 ? Math.max(0.05, o.life / 0.6) : 1));
+  }
+
+  /** 순간이동: 코스 앞으로 45m (낭떠러지는 건너뛰고 그 뒤로) */
+  warp(r) {
+    const tr = this.track;
+    let d = r.lastD + 45;
+    for (let k = 0; k < 40 && (tr.inGap(d) || tr.inGap(d - 12)); k++) d += 6;
+    const p = tr.at(d), fromX = r.x, fromY = r.y, fromZ = r.z;
+    let dd = d - r.lastD; if (dd < 0) dd += tr.length;
+    for (let i = 0; i < 18; i++) this.sparks.emit(fromX, fromY + 1, fromZ, 0x67e8f9, (Math.random() - 0.5) * 8, Math.random() * 6, (Math.random() - 0.5) * 8, 0.5);
+    const h = Math.atan2(p.tx, p.tz);
+    Object.assign(r, { x: p.x, z: p.z, y: p.y + 0.6, vy: 0, h, idx: p.i, grounded: false, gliding: false, zone: 'main', scIdx: [], offT: 0, safeD: p.d, slip: 0, iceMv: undefined });
+    if (r.drifting) this.endDrift(r);
+    r.lastD = p.d; r.progress += dd;
+    r.invT = Math.max(r.invT, 0.5);
+    r.speed = Math.max(r.speed, r.stats.maxSpeed * 0.9);
+    for (let i = 0; i < 22; i++) this.sparks.emit(p.x, p.y + 1, p.z, i % 2 ? 0x67e8f9 : 0xc084fc, (Math.random() - 0.5) * 8, Math.random() * 6, (Math.random() - 0.5) * 8, 0.6);
+    if (r.isPlayer) { r.camH = h; this.sound('levelup'); this.msg = { text: '🌀 순간이동!', t: 0.9 }; }
+  }
+
+  /** 레이저 표적: 바로 앞 일직선(±15°) 70m 안의 가장 가까운 카트 */
+  laserTarget(r) {
+    let best = null, bd = LASER_R * LASER_R;
+    for (const o of this.racers) {
+      if (o === r || o.finished || o.respawnT > 0) continue;
+      const dx = o.x - r.x, dz = o.z - r.z, d2 = dx * dx + dz * dz;
+      if (d2 > bd || Math.abs(o.y - r.y) > 5) continue;
+      if (Math.abs(wrapAngle(Math.atan2(dx, dz) - r.h)) > 0.26) continue;
+      best = o; bd = d2;
+    }
+    return best;
+  }
+
+  fireLaser(r) {
+    const t = this.laserTarget(r);
+    const ex = t ? t.x : r.x + Math.sin(r.h) * LASER_R, ez = t ? t.z : r.z + Math.cos(r.h) * LASER_R, ey = t ? t.y : r.y;
+    const n = 40;
+    for (let i = 1; i <= n; i++) { const k = i / n; this.sparks.emit(r.x + (ex - r.x) * k, r.y + 1 + (ey - r.y) * k, r.z + (ez - r.z) * k, i % 3 ? 0xf43f5e : 0xfde047, 0, 0.3, 0, 0.35); }
+    this.sound('power');
+    if (!t) return;
+    if (t.remote) { if (this.multi) this.multi.net.relay({ k: 'bump', to: t.id, kind: 'laser' }); }
+    else this.hitRacer(t, 'laser');
+    if (r.isPlayer) this.msg = { text: `🔦 ${t.ch?.name ?? ''} 명중!`, t: 0.8 };
   }
 
   updateRanks() {

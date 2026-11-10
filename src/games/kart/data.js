@@ -108,14 +108,21 @@ export const ITEMS = {
   smoke:   { name: '연막탄', icon: '💨', desc: '뒤에 연기 구름 (지나가면 앞이 안 보이고 느려짐)' },
   spring:  { name: '점프 스프링', icon: '🦘', desc: '그 자리에서 높이 점프 (장애물 넘기 + 트릭)' },
   magnet:  { name: '자석', icon: '🧲', desc: '3.5초 동안 앞 카트 쪽으로 끌려가며 가속' },
+  barricade: { name: '바리케이드', icon: '🚧', desc: '뒤에 고깔 3개를 일렬로' },
+  glue:    { name: '끈끈이', icon: '🍯', desc: '뒤에 끈적한 웅덩이 (밟으면 1.5초 절반 속도)' },
+  tornado: { name: '회오리', icon: '🌪️', desc: '코스를 따라 앞으로 굴러가며 닿는 카트를 돌림' },
+  warp:    { name: '순간이동', icon: '🌀', desc: '코스 앞으로 45m 순간이동' },
+  bumper:  { name: '고무 범퍼', icon: '🛞', desc: '6초 동안 부딪친 상대를 크게 튕겨냄' },
+  slowfield: { name: '감속장', icon: '⏳', desc: '4초 동안 내 주변 상대가 느려짐' },
+  laser:   { name: '레이저', icon: '🔦', desc: '바로 앞 일직선 70m 안의 첫 카트를 즉시 맞힘' },
 };
 
 /** 순위(0=1등 ~ 1=꼴등)에 따라 아이템 확률이 달라짐 */
 export function rollItem(rankFrac) {
   const tables = [
-    { oil: 22, mine: 15, rocket: 15, nitro: 12, shield: 12, smoke: 14, spring: 10 },
-    { rocket: 18, homing: 12, nitro: 15, oil: 8, mine: 8, shield: 8, triple: 8, rocket3: 8, freeze: 8, spring: 7 },
-    { triple: 18, homing: 18, turbo: 15, nitro: 10, rocket3: 12, freeze: 12, magnet: 15 },
+    { oil: 16, mine: 12, rocket: 12, nitro: 10, shield: 10, smoke: 10, spring: 8, barricade: 10, glue: 10, bumper: 8 },
+    { rocket: 12, homing: 10, nitro: 10, oil: 6, mine: 6, shield: 6, triple: 6, rocket3: 8, freeze: 8, spring: 6, tornado: 8, laser: 8, slowfield: 6, bumper: 5, glue: 5 },
+    { triple: 14, homing: 14, turbo: 12, nitro: 8, rocket3: 10, freeze: 10, magnet: 12, warp: 12, tornado: 8, laser: 8 },
   ];
   const t = tables[rankFrac < 0.3 ? 0 : rankFrac < 0.7 ? 1 : 2];
   const total = Object.values(t).reduce((a, b) => a + b, 0);
