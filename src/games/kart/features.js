@@ -48,9 +48,10 @@ export function buildFeatures(track, g, quality = 1) {
     const cross = a.tx * b.tz - a.tz * b.tx; // >0: 오른쪽으로 꺾임
     if (Math.abs(cross) < 0.32 || a.d - lastSign < 14 || !okD(a.d) || track.onBridge(a.d)) continue;
     const dir = cross > 0 ? 1 : -1, outer = -dir; // 바깥쪽 벽에 세움
-    const x = a.x + a.nx * (track.wall + 0.7) * outer, z = a.z + a.nz * (track.wall + 0.7) * outer;
+    const x = a.x + a.nx * (track.wall + 1.9) * outer, z = a.z + a.nz * (track.wall + 1.9) * outer; // 판 폭(3.2m)만큼 벽에서 떨어뜨림
+    if (!track.roadClear(x, z, 1.7, a.y, a.y + 3)) continue;
     if (!clear(x, z, 0.5, a.d, 30)) continue;
-    signs[dir].push({ x, y: a.y + (track.wall + 0.7) * outer * (a.bank ?? 0), z, h: Math.atan2(a.tx, a.tz) + Math.PI }); // 다가오는 운전자를 향함
+    signs[dir].push({ x, y: a.y + (track.wall + 1.9) * outer * (a.bank ?? 0), z, h: Math.atan2(a.tx, a.tz) + Math.PI }); // 다가오는 운전자를 향함
     lastSign = a.d;
   }
   for (const dir of [1, -1]) {
@@ -98,7 +99,7 @@ export function buildFeatures(track, g, quality = 1) {
     for (let i = 0; i < N; i++) {
       const s = S[i], dd = Math.min(s.d, track.length - s.d);
       if (dd > 60 || i % 4) continue;
-      for (const side of [-1, 1]) flags.push({ x: s.x + s.nx * (track.wall + 0.4) * side, y: s.y, z: s.z + s.nz * (track.wall + 0.4) * side, c: flagCols[(i / 4 + (side > 0 ? 2 : 0)) % flagCols.length], h: Math.atan2(s.tx, s.tz) });
+      for (const side of [-1, 1]) flags.push({ x: s.x + s.nx * (track.wall + 1) * side, y: s.y, z: s.z + s.nz * (track.wall + 1) * side, c: flagCols[(i / 4 + (side > 0 ? 2 : 0)) % flagCols.length], h: Math.atan2(s.tx, s.tz) });
     }
     const fl = new THREE.InstancedMesh(new THREE.ConeGeometry(0.5, 1.2, 3), new THREE.MeshLambertMaterial({ color: 0xffffff }), flags.length);
     const pl = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, 3, 4), new THREE.MeshLambertMaterial({ color: 0xe5e7eb }), flags.length);
@@ -304,6 +305,8 @@ export function buildFeatures(track, g, quality = 1) {
       const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(2.1, 0), new THREE.MeshLambertMaterial({ color: 0x92400e, flatShading: true }));
       const warn = new THREE.Mesh(new THREE.RingGeometry(1.6, 2.4, 20), new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
       warn.rotation.x = -Math.PI / 2;
+      rock.userData.keep = warn.userData.keep = true; // 장애물은 도로 위에 있어야 함
+      rock.visible = false; warn.visible = false;
       g.add(rock, warn);
       hazards.push({ type: 'boulder', d, s, rock, warn, period: 7, offset: hz.at * 13, dir: hz.dir ?? 1 });
     } else if (hz.type === 'geyser') { // 용암 분출: 3초 쉬고, 1초 빛나며 경고, 1.2초 분출
@@ -314,6 +317,7 @@ export function buildFeatures(track, g, quality = 1) {
       glow.rotation.x = -Math.PI / 2; glow.position.set(x, s.y + track.hw * (hz.lat ?? 0) * s.bank + 0.08, z);
       const col = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.4, 12, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xfb923c, transparent: true, opacity: 0.85 }));
       col.position.set(x, s.y + 6, z); col.visible = false;
+      vent.userData.keep = glow.userData.keep = col.userData.keep = true;
       g.add(vent, glow, col);
       hazards.push({ type: 'geyser', d, x, z, y: s.y + track.hw * (hz.lat ?? 0) * s.bank, glow, col, period: 5.2, offset: hz.at * 7 });
     } else if (hz.type === 'ice') { // 빙판: 이 구간은 미끄러움

@@ -1,5 +1,5 @@
 // 오프라인 지원: 네트워크 우선, 실패하면 캐시 사용 (배포 후 항상 최신 버전이 먼저 보이도록)
-const CACHE = 'miniigame-v24';
+const CACHE = 'miniigame-v25';
 const CORE = [
   './', './index.html', './embed.html', './manifest.webmanifest',
   './src/engine.js', './src/sfx.js', './src/music.js', './src/registry.js',

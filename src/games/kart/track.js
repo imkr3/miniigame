@@ -84,9 +84,10 @@ export class Track {
       const da = pointD(a), db = pointD(b);
       return { launch: da, from: da + 4, to: db - 6 };
     });
-    this.ramps = (def.ramps ?? []).map((k) => ({ d: pointD(k), glide: false }));
-    for (const g of this.gaps) this.ramps.push({ d: g.launch, glide: true });
+    this.ramps = (def.ramps ?? []).map((k) => ({ d: pointD(k), glide: false, len: 9, rise: 1.2 }));
+    for (const g of this.gaps) this.ramps.push({ d: g.launch, glide: true, len: 12, rise: 1.7 });
     this.bridges = (def.bridges ?? []).map(([a, b]) => [pointD(a), pointD(b)]);
+    if (def.autoRamps !== false) this.addCrestRamps(); // 언덕 꼭대기 점프대 (곡률·고가도로 정보가 생긴 뒤)
     for (const s of this.samples) s.bank = 0;
     this.buildShortcuts();
     // 갈림길·지름길까지 포함한 범위 (미니맵·바닥·먼 산 배치용)
@@ -165,6 +166,79 @@ export class Track {
       if (branch) return { ...sc, branch, samples, length, dFrom, dTo, span, half, surface: 1 };
       return { ...sc, samples, length, dFrom, dTo, span, half, surface: Math.max(0.6, Math.min(0.85, ratio * 1.25)) };
     });
+  }
+
+  /** 점프대 단면: 처음엔 완만하다가 끝에서 가팔라지는 곡선 (u: 0 시작 ~ 1 끝) */
+  rampProfile(r, u) { return r.rise * Math.pow(Math.max(0, Math.min(1, u)), 1.8); }
+  /** 거리 d 에서 점프대 때문에 올라간 높이 */
+  rampHeight(d) {
+    for (const r of this.ramps) {
+      let k = d - (r.d - r.len);
+      if (k < 0) k += this.length;
+      if (k >= 0 && k <= r.len) return this.rampProfile(r, k / r.len);
+    }
+    return 0;
+  }
+  /** 언덕 꼭대기(오르막 → 내리막)인 곧은 길에 점프대를 자연스럽게 추가 (트랙당 최대 2개) */
+  addCrestRamps() {
+    const S = this.samples, N = this.N, L = this.length;
+    const busy = (d) => d < 80 || d > L - 80 || this.ramps.some((r) => Math.abs(r.d - d) < 120) || this.gaps.some((g) => this.inRange(d, g.launch - 60, g.to + 40)) || this.onBridge(d)
+      || (this.def.shortcuts ?? []).some((sc) => Math.abs(sc.from * L - d) < 60 || Math.abs(sc.to * L - d) < 60);
+    let added = 0;
+    for (let i = 8; i < N - 8 && added < 2; i++) {
+      const a = S[i - 6].slope, b = S[i + 4].slope, d = S[i].d;
+      const straight = this.curv[i] < 0.2 && this.curv[(i - 10 + N) % N] < 0.25;
+      if (a > 0.04 && b < 0.012 && straight && !busy(d)) { this.ramps.push({ d, glide: false, len: 9, rise: 1.1, crest: true }); added++; } // 오르막이 끝나는 꼭대기
+    }
+  }
+
+  /**
+   * (x,z) 반경 r 짜리 물체가 도로(본선 벽 안쪽·지름길·갈림길)와 겹치지 않는지
+   * y0~y1: 물체 높이 범위 (도로 면에서 4m 위까지만 겹침으로 봄 → 위로 지나가는 다리·아치는 괜찮음)
+   */
+  roadClear(x, z, r, y0 = -Infinity, y1 = Infinity) {
+    const hit = (s, w) => (s.x - x) ** 2 + (s.z - z) ** 2 < (w + r) ** 2 && y1 > s.y - 1 && y0 < s.y + 4;
+    for (const s of this.samples) if (!this.inGap(s.d) && hit(s, this.wall - 0.3)) return false;
+    for (const sc of this.shortcuts ?? []) for (const s of sc.samples) if (hit(s, sc.half + 1.3)) return false;
+    return true;
+  }
+
+  /** 상자(Box3)가 도로 위 공간(도로 면 ~ 4m 위)과 겹치는지 — 아래에서 받치는 기둥(도로 면보다 안 튀어나옴)은 괜찮음 */
+  boxHitsRoad(bb) {
+    const hit = (s, w) => {
+      const dx = Math.max(bb.min.x - s.x, 0, s.x - bb.max.x), dz = Math.max(bb.min.z - s.z, 0, s.z - bb.max.z);
+      if (dx * dx + dz * dz > w * w) return false;
+      const lo = s.y - Math.abs(w * (s.bank ?? 0)) - 0.3, hi = s.y + Math.abs(w * (s.bank ?? 0)) + 4;
+      return bb.max.y > Math.max(lo, s.y + 0.6) && bb.min.y < hi;
+    };
+    for (const s of this.samples) if (!this.inGap(s.d) && hit(s, this.wall - 0.3)) return true;
+    for (const sc of this.shortcuts ?? []) for (const s of sc.samples) if (hit(s, sc.half + 1.3)) return true;
+    return false;
+  }
+
+  /** 다 만든 뒤 정리: 도로를 침범하는 장식(나무·바위·구름·건물·기둥 등)을 숨김 → 맵과 트랙이 겹치는 버그 방지 */
+  sanitize(g, skip) {
+    g.updateMatrixWorld(true);
+    const bb = new THREE.Box3(), m = new THREE.Matrix4(), zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    let removed = 0;
+    g.traverse((o) => {
+      if (!o.isMesh || skip.has(o) || o.userData.keep) return;
+      const t = o.geometry.type;
+      if (t === 'BufferGeometry' || t === 'TorusGeometry' || (t === 'PlaneGeometry' && (o.geometry.parameters.width > 500 || o.userData.decal))) return;
+      o.geometry.computeBoundingBox();
+      if (o.isInstancedMesh) {
+        for (let i = 0; i < o.count; i++) {
+          o.getMatrixAt(i, m);
+          bb.copy(o.geometry.boundingBox).applyMatrix4(m).applyMatrix4(o.matrixWorld);
+          if (bb.max.y - bb.min.y > 0.35 && this.boxHitsRoad(bb)) { o.setMatrixAt(i, zero); removed++; }
+        }
+        o.instanceMatrix.needsUpdate = true;
+      } else {
+        bb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+        if (bb.max.y - bb.min.y > 0.35 && this.boxHitsRoad(bb)) { o.visible = false; removed++; }
+      }
+    });
+    this.sanitized = removed;
   }
 
   /** 벽이 뚫린 곳인지 (side: 1 오른쪽, -1 왼쪽) */
@@ -356,6 +430,7 @@ export class Track {
       }
       if (slabs.length) {
         const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(this.wall * 2, 0.6, 12.5), pillarMat, slabs.length);
+        inst.userData.keep = true; // 고가도로 상판 (아래 길과 간격이 좁아도 숨기면 안 됨)
         slabs.forEach((p, i) => { m4.compose(new THREE.Vector3(p.x, p.y, p.z), q.setFromAxisAngle(up, p.r), new THREE.Vector3(1, 1, 1)); inst.setMatrixAt(i, m4); });
         g.add(inst);
       }
@@ -375,10 +450,10 @@ export class Track {
     const archMat = new THREE.MeshLambertMaterial({ color: th.wallTop });
     for (const side of [-1, 1]) {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.8, 7, 0.8), archMat);
-      post.position.set(s0.x + s0.nx * (this.hw + 1.5) * side, s0.y + 3.5, s0.z + s0.nz * (this.hw + 1.5) * side);
+      post.position.set(s0.x + s0.nx * (this.wall + 0.8) * side, s0.y + 3.5, s0.z + s0.nz * (this.wall + 0.8) * side); // 벽 바깥에 세움
       g.add(post);
     }
-    const banner = new THREE.Mesh(new THREE.BoxGeometry(this.hw * 2 + 3.8, 1.4, 0.5), new THREE.MeshBasicMaterial({ map: checker }));
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(this.wall * 2 + 2.4, 1.4, 0.5), new THREE.MeshBasicMaterial({ map: checker }));
     banner.position.set(s0.x, s0.y + 7, s0.z);
     banner.rotation.y = h0; // 상자의 가로(X)축이 도로를 가로지름
     g.add(banner);
@@ -403,24 +478,35 @@ export class Track {
     // 점프대 / 글라이더 발사대 (경사로)
     const stripeTex = (a, b2) => canvasTexture(32, 32, (ctx, w, h) => { ctx.fillStyle = a; ctx.fillRect(0, 0, w, h); ctx.fillStyle = b2; for (let i = -w; i < w; i += 12) { ctx.beginPath(); ctx.moveTo(i, h); ctx.lineTo(i + 6, h); ctx.lineTo(i + 6 + h, 0); ctx.lineTo(i + h, 0); ctx.fill(); } });
     const rampTex = stripeTex('#facc15', '#1f2937'), glideTex = stripeTex('#38bdf8', '#ffffff');
+    const rampMat = new THREE.MeshLambertMaterial({ map: this._mats.roadMat.map, side: THREE.DoubleSide });
     for (const r of this.ramps) {
-      const p = this.at(r.d - 3);
-      const len = 6, rise = r.glide ? 1.4 : 0.9;
-      const geo = new THREE.BufferGeometry();
-      const w = r.glide ? this.hw : this.hw * 0.55;
-      // 쐐기: 뒤쪽 낮고 앞쪽 높음 (로컬 +Z = 진행 방향)
-      const v = [-w, 0, -len / 2, w, 0, -len / 2, -w, rise, len / 2, w, rise, len / 2, -w, 0, len / 2, w, 0, len / 2];
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-      geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1, 0, 1, 1, 1], 2));
-      geo.setIndex([0, 2, 1, 1, 2, 3, 2, 4, 3, 3, 4, 5, 0, 4, 2, 1, 3, 5]);
-      geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: r.glide ? glideTex : rampTex, side: THREE.DoubleSide }));
-      m.position.set(p.x, p.y + 0.02, p.z);
-      m.rotation.y = Math.atan2(p.tx, p.tz);
-      g.add(m);
+      // 도로 폭 전체가 곡선으로 솟아오르는 발판: 윗면은 도로 무늬, 끝(립)은 줄무늬, 옆면은 막아서 속이 안 보이게
+      const L = r.len, seg = 10, hw = this.hw + this.curb, pos = [], uv = [], idx = [];
+      const lipPos = [], lipIdx = [], sidePos = [], sideIdx = [];
+      for (let k = 0; k <= seg; k++) {
+        const u = k / seg, p = this.at(r.d - L + u * L), h = this.rampProfile(r, u) + 0.03, bk = p.bank ?? 0;
+        for (const sd of [-1, 1]) pos.push(p.x + p.nx * hw * sd, p.y + hw * sd * bk + h, p.z + p.nz * hw * sd);
+        uv.push(0, (u * L) / 12, 1, (u * L) / 12);
+        if (k < seg) { const a = k * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+        for (const sd of [-1, 1]) sidePos.push(p.x + p.nx * hw * sd, p.y + hw * sd * bk, p.z + p.nz * hw * sd, p.x + p.nx * hw * sd, p.y + hw * sd * bk + h, p.z + p.nz * hw * sd);
+      }
+      for (let k = 0; k < seg; k++) for (const sd of [0, 1]) { const a = (k * 2 + sd) * 2, b = ((k + 1) * 2 + sd) * 2; sideIdx.push(a, b, a + 1, a + 1, b, b + 1); }
+      const top = new THREE.BufferGeometry();
+      top.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); top.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); top.setIndex(idx); top.computeVertexNormals();
+      g.add(new THREE.Mesh(top, rampMat));
+      const side = new THREE.BufferGeometry();
+      side.setAttribute('position', new THREE.Float32BufferAttribute(sidePos, 3)); side.setIndex(sideIdx); side.computeVertexNormals();
+      g.add(new THREE.Mesh(side, this._mats.wallMat));
+      // 끝부분 줄무늬 (노랑·검정 = 점프, 하늘·흰 = 글라이더)
+      const pe = this.at(r.d), hEnd = this.rampProfile(r, 1) + 0.035, pb = this.at(r.d - 1.2), hB = this.rampProfile(r, 1 - 1.2 / L) + 0.035;
+      for (const [p, h] of [[pb, hB], [pe, hEnd]]) for (const sd of [-1, 1]) lipPos.push(p.x + p.nx * hw * sd, p.y + hw * sd * (p.bank ?? 0) + h, p.z + p.nz * hw * sd);
+      lipIdx.push(0, 2, 1, 1, 2, 3);
+      const lip = new THREE.BufferGeometry();
+      lip.setAttribute('position', new THREE.Float32BufferAttribute(lipPos, 3)); lip.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 4, 0, 0, 1, 4, 1], 2)); lip.setIndex(lipIdx); lip.computeVertexNormals();
+      g.add(new THREE.Mesh(lip, new THREE.MeshBasicMaterial({ map: r.glide ? glideTex : rampTex, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })));
       if (r.glide) { // 글라이더 아치 표시
         const q = this.at(r.d - 6);
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(this.hw + 1, 0.35, 8, 24, Math.PI), new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(this.wall + 0.8, 0.35, 8, 24, Math.PI), new THREE.MeshBasicMaterial({ color: 0x38bdf8 })); // 다리가 벽 바깥
         ring.position.set(q.x, q.y, q.z);
         ring.rotation.y = Math.atan2(q.tx, q.tz);
         g.add(ring);
@@ -498,6 +584,7 @@ export class Track {
         }, false);
         const sign = new THREE.Mesh(new THREE.BoxGeometry(5, 2, 0.2), new THREE.MeshBasicMaterial({ map: signTex }));
         sign.position.set(s0.x + s0.nx * (this.wall + 1.5) * sc.side, s0.y + 3.2, s0.z + s0.nz * (this.wall + 1.5) * sc.side);
+        if (!this.roadClear(sign.position.x, sign.position.z, 2.6, s0.y + 2, s0.y + 4.5)) sign.position.y += 5; // 다른 길 위면 높이 올려서 위로 지나가게
         sign.rotation.y = Math.atan2(s0.tx, s0.tz) + Math.PI;
         g.add(sign);
         continue;
@@ -507,7 +594,12 @@ export class Track {
       else if (S.some((s) => s.y > 0.5)) for (const s of [-1, 1]) ribbon(s * sc.half, s * sc.half, 0, 0, dirtMat); // (높은 지름길은 아래 흙둑으로 대충 메움)
       // 가장자리 노란 말뚝 (InstancedMesh)
       const postPos = [];
-      for (let i = 4; i < S.length - 4; i += 5) for (const sd of [-1, 1]) { const s = S[i]; postPos.push([s.x + s.nx * (sc.half + 0.4) * sd, s.y + 0.5, s.z + s.nz * (sc.half + 0.4) * sd]); }
+      for (let i = 4; i < S.length - 4; i += 5) for (const sd of [-1, 1]) {
+        const s = S[i], px = s.x + s.nx * (sc.half + 0.4) * sd, pz = s.z + s.nz * (sc.half + 0.4) * sd;
+        const q = this.nearest(px, pz);
+        if (Math.abs(q.lat) < this.wall + 0.5 && Math.abs(q.y - s.y) < 4) continue; // 본선과 합쳐지는 곳에선 말뚝 없음
+        postPos.push([px, s.y + 0.5, pz]);
+      }
       const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.12, 1, 5), postMat, postPos.length);
       const pm = new THREE.Matrix4();
       postPos.forEach(([x, y, z], i) => { pm.makeTranslation(x, y, z); posts.setMatrixAt(i, pm); });
@@ -521,6 +613,7 @@ export class Track {
       }, false);
       const sign = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 0.2), new THREE.MeshBasicMaterial({ map: signTex }));
       sign.position.set(s0.x + s0.nx * (this.wall + 1.5) * sc.side, s0.y + 3, s0.z + s0.nz * (this.wall + 1.5) * sc.side);
+      if (!this.roadClear(sign.position.x, sign.position.z, 2.2, s0.y + 2, s0.y + 4)) sign.position.y += 5;
       sign.rotation.y = Math.atan2(s0.tx, s0.tz) + Math.PI;
       g.add(sign);
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 3, 5), new THREE.MeshLambertMaterial({ color: 0x6b7280 }));
@@ -663,6 +756,7 @@ export class Track {
       });
       g.add(inst);
       const lamps = this.samples.filter((_, i) => i % 12 === 0).map((s) => ({ x: s.x + s.nx * (this.wall + 1), z: s.z + s.nz * (this.wall + 1), s: 1, r: 0, y0: s.y, free: true }))
+        .filter((p) => this.roadClear(p.x, p.z, 0.3, p.y0, p.y0 + 5))
         .filter((p) => !this.samples.some((s) => Math.abs(s.y - p.y0) > 2 && (s.x - p.x) ** 2 + (s.z - p.z) ** 2 < (this.wall + 1) ** 2));
       place(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfef08a }), lamps, 5);
       place(new THREE.CylinderGeometry(0.12, 0.12, 5, 5), new THREE.MeshLambertMaterial({ color: 0x64748b }), lamps, 2.5);

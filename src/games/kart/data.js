@@ -58,7 +58,7 @@ export const TRACKS = [
   {
     id: 'canyon', name: '모래 협곡', desc: '협곡 벽을 지그재그로 오르는 3단 스위치백, 절벽 위에서 협곡 활공, 바닥 S자', emoji: '🏜️',
     ...fromCourse('canyon'), width: 18,
-    boosts: [0.03, 0.47, 0.82], boxes: [0.09, 0.24, 0.62], shortcuts: [{ from: 0.46, to: 0.62, side: -1 }, { kind: 'branch', from: 0.66, to: 0.86, side: 1, out: 60, boosts: [0.5], label: '바위 없는 길' }], surfaces: [{ from: 0.17, to: 0.23, kind: 'wood' }], hazards: [{ type: 'boulder', at: 0.55 }, { type: 'boulder', at: 0.7, dir: -1 }, { type: 'boulder', at: 0.85 }],
+    boosts: [0.03, 0.47, 0.82], boxes: [0.09, 0.24, 0.62], shortcuts: [{ from: 0.46, to: 0.62, side: -1 }, { kind: 'branch', from: 0.66, to: 0.86, side: 1, out: 60, boosts: [0.5], label: '바위 없는 길' }], surfaces: [{ from: 0.17, to: 0.23, kind: 'wood' }], hazards: [{ type: 'boulder', at: 0.5 }, { type: 'boulder', at: 0.7, dir: -1 }, { type: 'boulder', at: 0.85 }],
     theme: { sky: 0xf6c38b, fog: 0xf3d2a6, ground: 0xd9a35f, dirt: 0xa0612e, wall: 0xb45309, wallTop: 0x78350f, curbA: 0xf97316, curbB: 0xfef3c7, scenery: 'cacti', sun: 0xfff1d6 },
   },
   {

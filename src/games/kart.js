@@ -161,6 +161,7 @@ export default class Kart extends GameBase {
     const q = { low: 0.45, normal: 1, high: 1.6 }[this.cfg.quality] ?? 1;
     this.trackGroup = this.track.build(q);
     this.features = buildFeatures(this.track, this.trackGroup, q); // 랜드마크·장애물·날씨
+    this.track.sanitize(this.trackGroup, new Set()); // 도로를 침범하는 장식은 숨김 (맵·트랙 겹침 방지)
     this.scene.add(this.trackGroup);
     this.trackIdx = idx;
     const th = def.theme;
@@ -767,7 +768,9 @@ export default class Kart extends GameBase {
     // 지름길·갈림길 위에서는 본선 검색 기준점을 '지금 진행한 만큼의 본선 위치'로 옮겨 둠
     // (출구가 본선의 다른 구간 옆에 있을 때 엉뚱한 구간으로 인식해 코스 밖 처리되던 문제)
     if (sc) r.idx = tr.at(scn.mainD).i;
-    const groundY = zone === 'main' ? n.y : sc ? scn.y : (tr.def.floating || zone === 'gap' ? -Infinity : 0);
+    // 본선 위 점프대는 실제로 솟아 있음 (도로 폭 안에서만)
+    const rampH = zone === 'main' && Math.abs(n.lat) <= tr.hw + tr.curb ? tr.rampHeight(n.d) : 0;
+    const groundY = zone === 'main' ? n.y + rampH : sc ? scn.y : (tr.def.floating || zone === 'gap' ? -Infinity : 0);
     const groundS = zone === 'main' ? n.s : sc ? scn.s : n.s;
     r.surface = zone === 'main' ? (Math.abs(n.lat) > tr.hw + tr.curb * 0.6 ? st.offroad : 1) : sc ? sc.surface : 0.45;
     r.offroad = r.surface < 1;
@@ -793,8 +796,11 @@ export default class Kart extends GameBase {
       if (r.gliding) {
         r.vy = Math.max(r.vy, -3.6);
         // 활공 보정: 코스 가운데 쪽으로 당기고, 진행 방향도 코스를 향해 서서히
-        if (Math.abs(n.lat) > tr.hw * 0.35) { const k = Math.sign(n.lat) * Math.min(Math.abs(n.lat), 6 * dt); r.x -= n.s.nx * k; r.z -= n.s.nz * k; }
-        r.h += wrapAngle(Math.atan2(n.s.tx, n.s.tz) - r.h) * Math.min(1, dt * 1.5);
+        // 가운데에서 멀수록 더 세게 당김 + 코스 폭(도로 가장자리) 밖으로는 못 나감 → 활공하다 맵 밖으로 날아가지 않게
+        const al = Math.abs(n.lat), lim = tr.hw * 0.85;
+        if (al > tr.hw * 0.3) { const k = Math.sign(n.lat) * Math.min(al, (6 + al * 0.8) * dt); r.x -= n.s.nx * k; r.z -= n.s.nz * k; }
+        if (Math.abs(n.lat) > lim) { const k = Math.sign(n.lat) * (Math.abs(n.lat) - lim); r.x -= n.s.nx * k; r.z -= n.s.nz * k; }
+        r.h += wrapAngle(Math.atan2(n.s.tx, n.s.tz) - r.h) * Math.min(1, dt * 2.5);
       }
       const prevY = r.y;
       r.y += r.vy * dt;
@@ -848,7 +854,7 @@ export default class Kart extends GameBase {
     if (dd > tr.length / 2) dd -= tr.length;
 
     // 점프대 / 글라이더 발사대 (살짝 떠 있어도 인정)
-    if (zone === 'main' && dd > 0 && Math.abs(n.lat) < tr.hw + 1.5 && r.y - n.y < 1.2) {
+    if (zone === 'main' && dd > 0 && Math.abs(n.lat) < tr.hw + 1.5 && r.y - n.y < 2.6) {
       for (const ramp of tr.ramps) {
         if (!tr.inRange(ramp.d, prevD, n.d)) continue;
         r.grounded = false; r.airT = 0; r.canTrick = true; r.trick = false; r.trickA = 0;
