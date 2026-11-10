@@ -159,8 +159,12 @@ export class Track {
         samples.push({ x: p.x, y: p.y, z: p.z, tx: t.x / fl, tz: t.z / fl, nx: -t.z / fl, nz: t.x / fl, d: u * length, slope: t.y / fl });
       }
       const span = ((dTo - dFrom) % L + L) % L;
-      const op = branch ? Math.min(lead, 40) + 6 : 26;
-      this.openings.push({ side, a: dFrom - 4, b: dFrom + op }, { side, a: dTo - op, b: dTo + 4 });
+      // 벽은 '옆에 그 길이 실제로 붙어 있는 구간'만 엶 (너무 길게 열면 높은 곳에서 그 틈으로 떨어짐)
+      const near = (d) => { const m = this.at(d); let best = Infinity; for (const q of samples) best = Math.min(best, (q.x - m.x) ** 2 + (q.z - m.z) ** 2); return Math.sqrt(best) < this.wall + half + 1.5; };
+      const maxOp = branch ? Math.min(lead, 40) + 6 : 26;
+      let opA = 4; while (opA < maxOp && near(dFrom + opA + 2)) opA += 2;
+      let opB = 4; while (opB < maxOp && near(dTo - opB - 2)) opB += 2;
+      this.openings.push({ side, a: dFrom - 4, b: dFrom + opA }, { side, a: dTo - opB, b: dTo + 4 });
       const ratio = length / span;
       // 짧을수록 흙길을 더 느리게 (지름길 이득을 구간 기준 20% 정도로)
       if (branch) return { ...sc, branch, samples, length, dFrom, dTo, span, half, surface: 1 };
@@ -420,7 +424,13 @@ export class Track {
           const blocks = S.some((o) => s.y - o.y > 2 && (o.x - px) ** 2 + (o.z - pz) ** 2 < (this.wall + 1.5) ** 2);
           if (!blocks) pillars.push({ x: px, z: pz, h: s.y });
         }
-        slabs.push({ x: s.x, y: s.y - 0.35, z: s.z, r: Math.atan2(s.tx, s.tz) });
+        for (const k of [0, 3]) {
+          const t = S[(i + k) % N];
+          if (!this.onBridge(t.d) || gapAt[(i + k) % N]) continue;
+          // 바로 아래(5m 이내)로 다른 길이 지나가면 상판을 붙이지 않음 (아래 길 위로 튀어나오지 않게)
+          const low = S.some((o) => { const dd = Math.abs(o.d - t.d); return Math.min(dd, this.length - dd) > 40 && t.y - o.y > 0 && t.y - o.y < 5.5 && (o.x - t.x) ** 2 + (o.z - t.z) ** 2 < (this.wall * 2 + 2) ** 2; });
+          if (!low) slabs.push({ x: t.x, y: t.y - 0.45, z: t.z, r: Math.atan2(t.tx, t.tz), roll: -Math.atan(t.bank ?? 0) });
+        }
       }
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
       if (pillars.length) {
@@ -429,9 +439,11 @@ export class Track {
         g.add(inst);
       }
       if (slabs.length) {
-        const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(this.wall * 2, 0.6, 12.5), pillarMat, slabs.length);
+        // 상판: 짧게(6.4m) 촘촘히, 기울어진 커브(뱅크)에 맞춰 같이 기울임 → 도로를 뚫고 튀어나오지 않음
+        const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(this.wall * 2, 0.6, 6.4), pillarMat, slabs.length);
         inst.userData.keep = true; // 고가도로 상판 (아래 길과 간격이 좁아도 숨기면 안 됨)
-        slabs.forEach((p, i) => { m4.compose(new THREE.Vector3(p.x, p.y, p.z), q.setFromAxisAngle(up, p.r), new THREE.Vector3(1, 1, 1)); inst.setMatrixAt(i, m4); });
+        const eu = new THREE.Euler(0, 0, 0, 'YXZ');
+        slabs.forEach((p, i) => { eu.set(0, p.r, p.roll); m4.compose(new THREE.Vector3(p.x, p.y, p.z), q.setFromEuler(eu), new THREE.Vector3(1, 1, 1)); inst.setMatrixAt(i, m4); });
         g.add(inst);
       }
     }
@@ -519,7 +531,7 @@ export class Track {
     this.boxSpots = [];
     for (const f of this.def.boxes) {
       const p = this.at(f * this.length);
-      for (const k of [-0.6, -0.2, 0.2, 0.6]) this.boxSpots.push({ x: p.x + p.nx * this.hw * k, y: p.y + this.hw * k * p.bank, z: p.z + p.nz * this.hw * k });
+      for (const k of [-0.72, -0.36, 0, 0.36, 0.72]) this.boxSpots.push({ x: p.x + p.nx * this.hw * k, y: p.y + this.hw * k * p.bank, z: p.z + p.nz * this.hw * k }); // 한 줄에 5개
     }
     // 갈림길 위 아이템 박스
     for (const sc of this.shortcuts) for (const f of sc.boxes ?? []) {

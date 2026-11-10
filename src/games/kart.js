@@ -598,6 +598,7 @@ export default class Kart extends GameBase {
     this.sparks.update(dt);
     animateFeatures(this.features, dt, performance.now() / 1000, this.camera3);
     if (this.msg && (this.msg.t -= dt) <= 0) this.msg = null;
+    if (this.smokeT > 0) this.smokeT -= dt;
     if (this.phase === 'select') { if (this.preview) this.preview.root.rotation.y += dt * 0.6; return; }
     for (const b of this.boxes) {
       b.mesh.rotation.y += dt * 1.6; b.mesh.rotation.x += dt * 0.7;
@@ -685,6 +686,18 @@ export default class Kart extends GameBase {
 
     const boosting = r.boostT > 0;
     let maxS = st.maxSpeed * (r.rubber ?? 1);
+    // 아이템 상태: 냉동(느려짐) · 연막(앞이 안 보임) · 자석(앞 카트 쪽으로 끌려감)
+    for (const k of ['freezeT', 'blindT', 'magnetT', 'smokeCd']) if (r[k] > 0) r[k] = Math.max(0, r[k] - dt);
+    if (r.freezeT > 0) maxS *= 0.55;
+    if (r.blindT > 0) maxS *= 0.85;
+    if (r.magnetT > 0) {
+      const ahead = this.racers.find((o) => o.rank === r.rank - 1);
+      if (ahead && (ahead.x - r.x) ** 2 + (ahead.z - r.z) ** 2 < 90 ** 2) {
+        maxS *= 1.22; r.speed = Math.min(maxS, r.speed + 6 * dt);
+        if (r.grounded && !r.drifting) r.h += wrapAngle(Math.atan2(ahead.x - r.x, ahead.z - r.z) - r.h) * Math.min(1, dt * 0.8);
+        if (Math.random() < 0.5) this.sparks.emit(r.x, r.y + 1.2, r.z, 0xf472b6, (ahead.x - r.x) * 0.1, 0.5, (ahead.z - r.z) * 0.1, 0.4);
+      }
+    }
     if (r.surface < 1 && !boosting && r.grounded) maxS *= r.surface; // 갓길·흙길·풀밭은 느림
     if (boosting) maxS *= st.boostMul ?? 1.3;
     if (r.gliding) {
@@ -1017,8 +1030,8 @@ export default class Kart extends GameBase {
         f.material.color.setHex(r.invT > 0 ? 0xfde047 : r.boostT > 1.2 ? 0xc084fc : r.boostT > 0.8 ? 0xfb923c : 0x60a5fa);
       }
     }
-    m.shield.visible = r.shieldT > 0 || r.invT > 0;
-    if (m.shield.visible) { m.shield.material.color.setHex(r.invT > 0 ? 0xfde047 : 0x60a5fa); m.shield.material.opacity = 0.18 + Math.sin(performance.now() / 120) * 0.06; }
+    m.shield.visible = r.shieldT > 0 || r.invT > 0 || r.freezeT > 0;
+    if (m.shield.visible) { m.shield.material.color.setHex(r.invT > 0 ? 0xfde047 : r.freezeT > 0 ? 0xe0f2fe : 0x60a5fa); m.shield.material.opacity = 0.18 + Math.sin(performance.now() / 120) * 0.06; }
     if (r.grounded) r.lastGroundY = r.y;
   }
 
@@ -1087,6 +1100,7 @@ export default class Kart extends GameBase {
     if (r.drifting && onSc) drift = false; // 좁은 지름길에서는 드리프트 안 함
     else if (r.drifting) { drift = curv > 0.24 || r.driftT < DRIFT_LV[r.skill > 0.97 ? 1 : 0]; steer = clamp(-diff * 2.4, -1, 1); }
     r.aiDriftT -= dt;
+    if (r.blindT > 0) steer = clamp(steer + Math.sin(performance.now() / 180 + r.lane * 5) * 0.8, -1, 1); // 연막: 헤맴
     // 아이템
     if (r.item && r.roll <= 0) {
       r.aiItemT -= dt * this.diff.items;
@@ -1106,6 +1120,10 @@ export default class Kart extends GameBase {
     else if (type === 'rocket') use = !!front && Math.random() < 0.5;
     else if (type === 'homing') use = r.rank > 1;
     else if (type === 'nitro' || type === 'triple') use = this.track.curvatureAt(r.idx) < 0.4;
+    else if (type === 'smoke') use = behind || Math.random() < 0.2;
+    else if (type === 'rocket3') use = !!front || Math.random() < 0.25;
+    else if (type === 'freeze' || type === 'magnet') use = r.rank > 1;
+    else if (type === 'spring') use = this.objs.some((o) => o.owner !== r && (o.x - r.x) ** 2 + (o.z - r.z) ** 2 < 400) || Math.random() < 0.3;
     else use = true;
     if (use) this.useItem(r);
     r.aiItemT = 0.6 + Math.random() * 2.5;
@@ -1141,6 +1159,21 @@ export default class Kart extends GameBase {
         break;
       }
       case 'shield': r.shieldT = 12; break;
+      case 'rocket3': // 부채꼴 3발
+        for (const da of [-0.14, 0, 0.14]) { const a2 = r.h + da; spawn('rocket', 2.6, { vx: Math.sin(a2) * 50, vz: Math.cos(a2) * 50, life: 3.2, arm: 0.15, bounces: 0 }); }
+        this.sound('power'); break;
+      case 'freeze': { // 바로 앞 순위를 쫓아가는 냉동탄
+        const target = this.racers.find((o) => o.rank === r.rank - 1) ?? null;
+        spawn('freeze', 2.6, { vx: fx * 44, vz: fz * 44, life: 6, arm: 0.15, target });
+        this.sound('power'); break;
+      }
+      case 'smoke': spawn('smoke', -3, { life: 14, arm: 0.6 }); this.sound('lock'); break;
+      case 'spring': // 제자리 높이 점프 + 트릭 가능
+        r.vy = 10.5; r.grounded = false; r.airT = 0; r.canTrick = true; r.trick = false; r.boostT = Math.max(r.boostT, 0.6);
+        if (r.drifting) this.endDrift(r);
+        if (r.isPlayer) { this.sound('jump'); this.msg = { text: '스프링! Space로 트릭', t: 0.9 }; }
+        break;
+      case 'magnet': r.magnetT = 3.5; if (r.isPlayer) this.sound('bonus'); break;
       case 'turbo': r.boostT = Math.max(r.boostT, 3.2); r.invT = 3.2; this.sound('levelup'); break;
     }
     r.uses--;
@@ -1149,6 +1182,13 @@ export default class Kart extends GameBase {
 
   hitRacer(r, kind) {
     if (r.invT > 0 || r.spinT > 0 || r.respawnT > 0) return false;
+    if (kind === 'freeze') { // 냉동탄: 돌지 않고 2.5초 동안 느려짐 (방어막이면 막음)
+      if (r.shieldT > 0) { r.shieldT = 0; if (r.isPlayer) { this.msg = { text: '방어막으로 막았다!', t: 1 }; this.sound('lock'); } return true; }
+      r.freezeT = 2.5; r.drifting = false;
+      for (let i = 0; i < 14; i++) this.sparks.emit(r.x, r.y + 1, r.z, 0xbae6fd, (Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6, 0.6);
+      if (r.isPlayer) { this.vibrate(120); this.sound('hit'); this.msg = { text: '❄ 얼었다!', t: 1 }; }
+      return true;
+    }
     if (r.shieldT > 0) {
       r.shieldT = 0;
       for (let i = 0; i < 16; i++) this.sparks.emit(r.x, r.y + 1, r.z, 0x93c5fd, (Math.random() - 0.5) * 8, Math.random() * 5, (Math.random() - 0.5) * 8, 0.5);
@@ -1167,8 +1207,8 @@ export default class Kart extends GameBase {
     const tr = this.track;
     for (const o of this.objs) {
       o.life -= dt; o.arm -= dt;
-      if (o.type === 'rocket' || o.type === 'homing') {
-        if (o.type === 'homing' && o.target && !o.target.finished) {
+      if (o.type === 'rocket' || o.type === 'homing' || o.type === 'freeze') {
+        if ((o.type === 'homing' || o.type === 'freeze') && o.target && !o.target.finished) {
           const want = Math.atan2(o.target.x - o.x, o.target.z - o.z), cur = Math.atan2(o.vx, o.vz);
           const na = cur + clamp(wrapAngle(want - cur), -3.5 * dt, 3.5 * dt), sp = 42;
           o.vx = Math.sin(na) * sp; o.vz = Math.cos(na) * sp;
@@ -1184,7 +1224,9 @@ export default class Kart extends GameBase {
         }
         o.mesh.position.set(o.x, o.y + 0.3, o.z);
         o.mesh.rotation.y = Math.atan2(o.vx, o.vz);
-        if (Math.random() < 0.7) this.sparks.emit(o.x - o.vx * 0.03, o.y + 0.9, o.z - o.vz * 0.03, 0xfbbf24, 0, 1, 0, 0.25);
+        if (Math.random() < 0.7) this.sparks.emit(o.x - o.vx * 0.03, o.y + 0.9, o.z - o.vz * 0.03, o.type === 'freeze' ? 0xbae6fd : 0xfbbf24, 0, 1, 0, 0.25);
+      } else if (o.type === 'smoke') {
+        const k = Math.min(1, (14 - o.life) * 2); o.mesh.scale.setScalar(0.4 + k * 0.8 + Math.sin(performance.now() / 300) * 0.05);
       } else if (o.type === 'mine') {
         o.mesh.children[o.mesh.children.length - 1].visible = Math.floor(performance.now() / 200) % 2 === 0;
       }
@@ -1192,10 +1234,16 @@ export default class Kart extends GameBase {
         if (o.life <= 0) break;
         if (r.remote) continue; // 다른 사람 카트의 충돌은 그 사람 화면에서 판정
         if (r === o.owner && o.arm > 0) continue;
-        const rad = o.type === 'oil' ? 1.9 : o.type === 'mine' ? 1.6 : 1.7;
-        if ((r.x - o.x) ** 2 + (r.z - o.z) ** 2 > rad * rad || Math.abs(r.y - o.y) > 1.5 || r.respawnT > 0) continue;
+        const rad = o.type === 'oil' ? 1.9 : o.type === 'mine' ? 1.6 : o.type === 'smoke' ? 4.2 : 1.7;
+        if ((r.x - o.x) ** 2 + (r.z - o.z) ** 2 > rad * rad || Math.abs(r.y - o.y) > (o.type === 'smoke' ? 4 : 1.5) || r.respawnT > 0) continue;
+        if (o.type === 'smoke') { // 연막: 사라지지 않고 지나가는 카트마다 효과
+          if (r.invT > 0 || (r.smokeCd ?? 0) > 0) continue;
+          r.smokeCd = 1.5; r.blindT = 1.6;
+          if (r.isPlayer) { this.smokeT = 2.2; this.sound('lock'); }
+          continue;
+        }
         if (o.type !== 'oil' || r.invT <= 0) this.hitRacer(r, o.type);
-        if (o.type === 'mine' || o.type === 'rocket' || o.type === 'homing') {
+        if (o.type === 'mine' || o.type === 'rocket' || o.type === 'homing' || o.type === 'freeze') {
           this.explode(o);
           for (const q of this.racers) if (q !== r && !q.remote && o.type === 'mine' && (q.x - o.x) ** 2 + (q.z - o.z) ** 2 < 12) this.hitRacer(q, 'mine');
           if (r.isPlayer || o.owner.isPlayer) this.sound('drop');
@@ -1487,6 +1535,15 @@ export default class Kart extends GameBase {
         t -= len; x += w;
       });
       shadowText(lvl ? TURBO_NAMES[lvl].replace('!', ' 준비') : '드리프트 중…', W - 16, gy - 8, '800 12px system-ui, sans-serif', lvl ? hex(SPARK_COLORS[lvl]) : '#fff', 'right');
+    }
+    if (this.smokeT > 0) { // 연막: 화면이 뿌옇게
+      const a = Math.min(1, this.smokeT / 0.6) * 0.75;
+      for (let i = 0; i < 9; i++) {
+        const gx = W * (0.15 + (i % 3) * 0.35) + Math.sin(performance.now() / 400 + i) * 20, gy = H * (0.25 + Math.floor(i / 3) * 0.25);
+        const gr = ctx.createRadialGradient(gx, gy, 10, gx, gy, 150);
+        gr.addColorStop(0, `rgba(203,213,225,${a})`); gr.addColorStop(1, 'rgba(203,213,225,0)');
+        ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+      }
     }
     if (p.gliding) shadowText('🪂 활공 중 - ←→로 방향 조절', W / 2, H - 20, '800 13px system-ui, sans-serif', '#bae6fd', 'center');
     this.drawNameTags(ctx);

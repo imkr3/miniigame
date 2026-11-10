@@ -246,6 +246,12 @@ export function buildItemMesh(type) {
     g.add(mesh(new THREE.SphereGeometry(0.5, 12, 10), mat(0xdc2626), 0, 0.5, 0));
     for (let i = 0; i < 6; i++) { const sp = mesh(new THREE.ConeGeometry(0.12, 0.35, 6), mat(0x374151), 0, 0.5, 0); const a = (i / 6) * Math.PI * 2; sp.position.set(Math.cos(a) * 0.5, 0.5, Math.sin(a) * 0.5); sp.lookAt(Math.cos(a) * 2, 0.5, Math.sin(a) * 2); sp.rotateX(Math.PI / 2); g.add(sp); }
     g.add(mesh(new THREE.SphereGeometry(0.1, 6, 5), new THREE.MeshBasicMaterial({ color: 0xfde047 }), 0, 1.02, 0));
+  } else if (type === 'freeze') { // 냉동탄: 빛나는 얼음 결정
+    const c = mesh(new THREE.OctahedronGeometry(0.55, 0), new THREE.MeshBasicMaterial({ color: 0xbae6fd }), 0, 0.8, 0); c.scale.set(0.7, 1.1, 0.7); g.add(c);
+    g.add(mesh(new THREE.SphereGeometry(0.8, 10, 8), new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.3, depthWrite: false }), 0, 0.8, 0));
+  } else if (type === 'smoke') { // 연막: 회색 구름 덩어리
+    const sm = new THREE.MeshLambertMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.75, depthWrite: false });
+    for (const [x, y, z, r] of [[0, 1.6, 0, 2.2], [1.6, 1.2, 0.6, 1.6], [-1.5, 1.3, -0.4, 1.7], [0.4, 2.6, -0.8, 1.4], [-0.6, 0.9, 1.4, 1.3]]) g.add(mesh(new THREE.SphereGeometry(r, 10, 8), sm, x, y, z));
   } else if (type === 'rocket' || type === 'homing') {
     const color = type === 'rocket' ? 0xef4444 : 0x8b5cf6;
     const bodyM = mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.2, 10), mat(color), 0, 0.7, 0); bodyM.rotation.x = Math.PI / 2; g.add(bodyM);

@@ -52,43 +52,43 @@ export const TRACKS = [
   {
     id: 'sunny', name: '햇살 서킷', desc: '고속 직선·시케인·언덕 헤어핀, 점프로 내려와 출발선 위를 고가도로로 건너는 8자', emoji: '🌳',
     ...fromCourse('sunny'), width: 18,
-    boosts: [0.04, 0.53], boxes: [0.16, 0.42, 0.82], shortcuts: [{ from: 0.78, to: 0.94, side: -1 }, { kind: 'branch', from: 0.14, to: 0.3, side: -1, out: 48, boosts: [0.3, 0.7], label: '가속 발판 길' }], surfaces: [{ from: 0.2, to: 0.29, kind: 'brick' }, { from: 0.66, to: 0.76, kind: 'wood' }],
+    boosts: [0.04, 0.53], boxes: [0.08, 0.16, 0.42, 0.65, 0.83], shortcuts: [{ from: 0.78, to: 0.94, side: -1 }, { kind: 'branch', from: 0.14, to: 0.3, side: -1, out: 48, boosts: [0.3, 0.7], label: '가속 발판 길' }], surfaces: [{ from: 0.2, to: 0.29, kind: 'brick' }, { from: 0.66, to: 0.76, kind: 'wood' }],
     theme: { sky: 0x8ecbff, fog: 0xbfe3ff, ground: 0x5fa64a, dirt: 0x7a5a3a, wall: 0xf1f5f9, wallTop: 0xef4444, curbA: 0xef4444, curbB: 0xffffff, scenery: 'trees', sun: 0xffffff },
   },
   {
     id: 'canyon', name: '모래 협곡', desc: '협곡 벽을 지그재그로 오르는 3단 스위치백, 절벽 위에서 협곡 활공, 바닥 S자', emoji: '🏜️',
     ...fromCourse('canyon'), width: 18,
-    boosts: [0.03, 0.47, 0.82], boxes: [0.09, 0.24, 0.62], shortcuts: [{ from: 0.46, to: 0.62, side: -1 }, { kind: 'branch', from: 0.66, to: 0.86, side: 1, out: 60, boosts: [0.5], label: '바위 없는 길' }], surfaces: [{ from: 0.17, to: 0.23, kind: 'wood' }], hazards: [{ type: 'boulder', at: 0.5 }, { type: 'boulder', at: 0.7, dir: -1 }, { type: 'boulder', at: 0.85 }],
+    boosts: [0.03, 0.47, 0.82], boxes: [0.09, 0.17, 0.24, 0.4, 0.62, 0.76], shortcuts: [{ from: 0.46, to: 0.62, side: -1 }, { kind: 'branch', from: 0.66, to: 0.86, side: 1, out: 60, boosts: [0.5], label: '바위 없는 길' }], surfaces: [{ from: 0.17, to: 0.23, kind: 'wood' }], hazards: [{ type: 'boulder', at: 0.5 }, { type: 'boulder', at: 0.7, dir: -1 }, { type: 'boulder', at: 0.85 }],
     theme: { sky: 0xf6c38b, fog: 0xf3d2a6, ground: 0xd9a35f, dirt: 0xa0612e, wall: 0xb45309, wallTop: 0x78350f, curbA: 0xf97316, curbB: 0xfef3c7, scenery: 'cacti', sun: 0xfff1d6 },
   },
   {
     id: 'neon', name: '네온 시티', desc: '직각 시가지 코너 블록 → 나선 램프로 고가도로 위 → 도시 위를 가로질러 내려옴', emoji: '🌃',
     ...fromCourse('neon'), width: 18,
-    boosts: [0.03, 0.4, 0.8], boxes: [0.09, 0.47, 0.7], shortcuts: [{ kind: 'branch', from: 0.08, to: 0.2, side: 1, out: 60, boosts: [0.4, 0.7], label: '가속 발판 길' }, { kind: 'branch', from: 0.8, to: 0.96, side: 1, out: 60, boxes: [0.5], label: '아이템 길' }], surfaces: [{ from: 0.26, to: 0.4, kind: 'neon' }],
+    boosts: [0.03, 0.4, 0.8], boxes: [0.09, 0.18, 0.47, 0.6, 0.7, 0.88], shortcuts: [{ kind: 'branch', from: 0.08, to: 0.2, side: 1, out: 60, boosts: [0.4, 0.7], label: '가속 발판 길' }, { kind: 'branch', from: 0.8, to: 0.96, side: 1, out: 60, boxes: [0.5], label: '아이템 길' }], surfaces: [{ from: 0.26, to: 0.4, kind: 'neon' }],
     theme: { sky: 0x0b1026, fog: 0x14183a, ground: 0x1f2937, dirt: 0x334155, wall: 0x22d3ee, wallTop: 0xf472b6, curbA: 0xa855f7, curbB: 0x22d3ee, scenery: 'city', sun: 0x9fb4ff, night: true },
   },
   {
     id: 'snow', name: '눈꽃 산길', desc: '헤어핀 두 개로 산을 올라 능선에서 절벽 활공, 헤어핀 연속 내리막', emoji: '❄️',
     ...fromCourse('snow'), width: 18,
-    boosts: [0.03, 0.42, 0.8], boxes: [0.07, 0.25, 0.6], shortcuts: [{ from: 0.84, to: 0.96, side: -1 }, { kind: 'branch', from: 0.58, to: 0.78, side: 1, out: 60, boxes: [0.5], label: '빙판 없는 길' }], surfaces: [{ from: 0.26, to: 0.3, kind: 'wood' }], hazards: [{ type: 'ice', at: 0.13, len: 36 }, { type: 'ice', at: 0.49, len: 30 }, { type: 'ice', at: 0.72, len: 40 }],
+    boosts: [0.03, 0.42, 0.8], boxes: [0.07, 0.19, 0.27, 0.6, 0.68, 0.88], shortcuts: [{ from: 0.84, to: 0.96, side: -1 }, { kind: 'branch', from: 0.58, to: 0.78, side: 1, out: 60, boxes: [0.5], label: '빙판 없는 길' }], surfaces: [{ from: 0.26, to: 0.3, kind: 'wood' }], hazards: [{ type: 'ice', at: 0.13, len: 36 }, { type: 'ice', at: 0.49, len: 30 }, { type: 'ice', at: 0.72, len: 40 }],
     theme: { sky: 0xc7d8ea, fog: 0xe2ecf6, ground: 0xf1f5f9, dirt: 0xcbd5e1, wall: 0x93c5fd, wallTop: 0x1d4ed8, curbA: 0x2563eb, curbB: 0xffffff, scenery: 'pines', sun: 0xffffff },
   },
   {
     id: 'skygarden', name: '구름 정원', desc: '떠 있는 섬을 활공 두 번으로 잇고, 하늘 S자와 나선 고리', emoji: '☁️',
     ...fromCourse('skygarden'), width: 18, floating: true,
-    boosts: [0.03, 0.24, 0.57], boxes: [0.09, 0.66, 0.86], shortcuts: [{ kind: 'branch', from: 0.64, to: 0.89, side: -1, out: 60, boosts: [0.3, 0.7], label: '가속 발판 길' }], surfaces: [{ from: 0.7, to: 0.8, kind: 'glass' }],
+    boosts: [0.03, 0.24, 0.57], boxes: [0.09, 0.26, 0.66, 0.75, 0.86], shortcuts: [{ kind: 'branch', from: 0.64, to: 0.89, side: -1, out: 60, boosts: [0.3, 0.7], label: '가속 발판 길' }], surfaces: [{ from: 0.7, to: 0.8, kind: 'glass' }],
     theme: { sky: 0x60a5fa, fog: 0xbfdbfe, ground: 0xf8fafc, dirt: 0xe9d5ff, wall: 0xfbcfe8, wallTop: 0xa855f7, curbA: 0xf472b6, curbB: 0xffffff, scenery: 'clouds', sun: 0xffffff },
   },
   {
     id: 'volcano', name: '용암 화산', desc: '화산을 나선으로 감아 올라 분화구 가장자리에서 활공, 용암 강 옆 고속 내리막', emoji: '🌋',
     ...fromCourse('volcano'), width: 18,
-    boosts: [0.03, 0.42, 0.8], boxes: [0.27, 0.49, 0.66], shortcuts: [{ kind: 'branch', from: 0.6, to: 0.85, side: 1, out: 60, label: '용암 없는 길' }], surfaces: [{ from: 0.39, to: 0.47, kind: 'metal' }], hazards: [{ type: 'geyser', at: 0.62, lat: -0.45 }, { type: 'geyser', at: 0.7, lat: 0.45 }, { type: 'geyser', at: 0.78, lat: 0 }, { type: 'geyser', at: 0.86, lat: -0.4 }],
+    boosts: [0.03, 0.42, 0.8], boxes: [0.27, 0.39, 0.49, 0.66, 0.74], shortcuts: [{ kind: 'branch', from: 0.6, to: 0.85, side: 1, out: 60, label: '용암 없는 길' }], surfaces: [{ from: 0.39, to: 0.47, kind: 'metal' }], hazards: [{ type: 'geyser', at: 0.62, lat: -0.45 }, { type: 'geyser', at: 0.7, lat: 0.45 }, { type: 'geyser', at: 0.78, lat: 0 }, { type: 'geyser', at: 0.86, lat: -0.4 }],
     theme: { sky: 0x7c2d12, fog: 0x9a3412, ground: 0x3f3a36, dirt: 0x57534e, wall: 0x44403c, wallTop: 0xf97316, curbA: 0xef4444, curbB: 0x1c1917, scenery: 'volcano', sun: 0xffc9a3 },
   },
   {
     id: 'beach', name: '해변 리조트', desc: '해안 S자 골목, 등대 언덕 헤어핀, 부두 끝에서 바다 위 활공', emoji: '🏖️',
     ...fromCourse('beach'), width: 18,
-    boosts: [0.04, 0.48, 0.8], boxes: [0.11, 0.31, 0.62], shortcuts: [{ from: 0.78, to: 0.94, side: 1 }, { kind: 'branch', from: 0.06, to: 0.26, side: -1, out: 60, boosts: [0.3], boxes: [0.6], label: '아이템 길' }], surfaces: [{ from: 0.25, to: 0.33, kind: 'wood' }],
+    boosts: [0.04, 0.48, 0.8], boxes: [0.11, 0.2, 0.31, 0.62, 0.72, 0.85], shortcuts: [{ from: 0.78, to: 0.94, side: 1 }, { kind: 'branch', from: 0.06, to: 0.26, side: -1, out: 60, boosts: [0.3], boxes: [0.6], label: '아이템 길' }], surfaces: [{ from: 0.25, to: 0.33, kind: 'wood' }],
     theme: { sky: 0x67e8f9, fog: 0xbae6fd, ground: 0xfde68a, dirt: 0xd6a85c, wall: 0xffffff, wallTop: 0x06b6d4, curbA: 0xf43f5e, curbB: 0xffffff, scenery: 'beach', sun: 0xfffbeb },
   },
 ];
@@ -103,14 +103,19 @@ export const ITEMS = {
   homing:  { name: '추적 로켓', icon: '🎯', desc: '바로 앞 순위를 쫓아감' },
   shield:  { name: '방어막', icon: '🛡️', desc: '공격 1번 막음' },
   turbo:   { name: '슈퍼 터보', icon: '🌟', desc: '오래 가속 + 무적 돌진' },
+  rocket3: { name: '로켓 3연발', icon: '🎆', desc: '앞으로 로켓 3발을 부채꼴로' },
+  freeze:  { name: '냉동탄', icon: '❄️', desc: '바로 앞 순위를 쫓아가 얼림 (2.5초 느려짐)' },
+  smoke:   { name: '연막탄', icon: '💨', desc: '뒤에 연기 구름 (지나가면 앞이 안 보이고 느려짐)' },
+  spring:  { name: '점프 스프링', icon: '🦘', desc: '그 자리에서 높이 점프 (장애물 넘기 + 트릭)' },
+  magnet:  { name: '자석', icon: '🧲', desc: '3.5초 동안 앞 카트 쪽으로 끌려가며 가속' },
 };
 
 /** 순위(0=1등 ~ 1=꼴등)에 따라 아이템 확률이 달라짐 */
 export function rollItem(rankFrac) {
   const tables = [
-    { oil: 30, mine: 20, rocket: 20, nitro: 15, shield: 15 },
-    { rocket: 25, homing: 15, nitro: 20, oil: 10, mine: 10, shield: 10, triple: 10 },
-    { triple: 25, homing: 25, turbo: 20, nitro: 15, rocket: 15 },
+    { oil: 22, mine: 15, rocket: 15, nitro: 12, shield: 12, smoke: 14, spring: 10 },
+    { rocket: 18, homing: 12, nitro: 15, oil: 8, mine: 8, shield: 8, triple: 8, rocket3: 8, freeze: 8, spring: 7 },
+    { triple: 18, homing: 18, turbo: 15, nitro: 10, rocket3: 12, freeze: 12, magnet: 15 },
   ];
   const t = tables[rankFrac < 0.3 ? 0 : rankFrac < 0.7 ? 1 : 2];
   const total = Object.values(t).reduce((a, b) => a + b, 0);
