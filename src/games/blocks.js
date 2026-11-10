@@ -115,23 +115,25 @@ const KICKS_JLSTZ = {
   '30': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
   '03': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
 };
+// I 블록은 TETR.IO 와 같은 SRS+ 킥 (좌우 대칭이라 I 스핀·벽 옆 회전이 더 자연스러움)
 const KICKS_I = {
-  '01': [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
-  '10': [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
+  '01': [[0, 0], [1, 0], [-2, 0], [-2, -1], [1, 2]],
+  '10': [[0, 0], [-1, 0], [2, 0], [-1, -2], [2, 1]],
   '12': [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
-  '21': [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]],
+  '21': [[0, 0], [-2, 0], [1, 0], [-2, 1], [1, -2]],
   '23': [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
-  '32': [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
+  '32': [[0, 0], [1, 0], [-2, 0], [1, 2], [-2, -1]],
   '30': [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]],
-  '03': [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
+  '03': [[0, 0], [-1, 0], [2, 0], [2, -1], [-1, 2]],
 };
-// 180° 회전 킥 (회전 전 상태 기준)
+// 180° 회전 킥 (회전 전 상태 기준) - TETR.IO 와 같음
 const KICKS_180 = {
   0: [[0, 0], [0, 1], [1, 1], [-1, 1], [1, 0], [-1, 0]],
   1: [[0, 0], [1, 0], [1, 2], [1, 1], [0, 2], [0, 1]],
   2: [[0, 0], [0, -1], [-1, -1], [1, -1], [-1, 0], [1, 0]],
   3: [[0, 0], [-1, 0], [-1, 2], [-1, 1], [0, 2], [0, 1]],
 };
+const KICKS_I180 = { 0: [[0, 0], [0, 1]], 1: [[0, 0], [1, 0]], 2: [[0, 0], [0, -1]], 3: [[0, 0], [-1, 0]] }; // I 블록 180°
 
 const NORMAL_SCORE = [0, 100, 300, 500, 800];
 const SPIN_SCORE = [400, 800, 1200, 1600, 2000];
@@ -489,7 +491,7 @@ export default class Blocks extends GameBase {
     if (p.type === O) return;
     const to = (p.r + dir + 4) % 4;
     const shape = dir === 1 ? rotateCW(p.shape) : dir === -1 ? rotateCCW(p.shape) : rotateCW(rotateCW(p.shape));
-    const kicks = dir === 2 ? KICKS_180[p.r] : (p.type === I ? KICKS_I : KICKS_JLSTZ)[`${p.r}${to}`];
+    const kicks = dir === 2 ? (p.type === I ? KICKS_I180 : KICKS_180)[p.r] : (p.type === I ? KICKS_I : KICKS_JLSTZ)[`${p.r}${to}`];
     for (let k = 0; k < kicks.length; k++) {
       const nx = p.x + kicks[k][0], ny = p.y - kicks[k][1];
       if (this.collides(shape, nx, ny)) continue;
@@ -510,15 +512,23 @@ export default class Blocks extends GameBase {
       const occ = (x, y) => x < 0 || x >= COLS || y >= ROWS || (y >= 0 && this.board[y][x] >= 0);
       const cx = p.x + 1, cy = p.y + 1;
       const c = [occ(cx - 1, cy - 1), occ(cx + 1, cy - 1), occ(cx + 1, cy + 1), occ(cx - 1, cy + 1)]; // ↖ ↗ ↘ ↙
-      if (c.filter(Boolean).length < 3) return null;
-      const front = [[0, 1], [1, 2], [2, 3], [3, 0]][p.r]; // T가 향한 쪽 두 모서리
-      const full = (c[front[0]] && c[front[1]]) || (this.lastMove.dir !== 2 && this.lastMove.kick === 4);
-      return { name: 'T', mini: !full };
+      if (c.filter(Boolean).length >= 3) {
+        const front = [[0, 1], [1, 2], [2, 3], [3, 0]][p.r]; // T가 향한 쪽 두 모서리
+        // TST·핀 킥(옆으로 1, 아래로 2 칸 들어가는 마지막 킥)은 앞 모서리가 비어도 정식 T-스핀
+        const tstKick = this.lastMove.dir !== 2 && this.lastMove.kick === 4 && (p.r === 1 || p.r === 3);
+        return { name: 'T', mini: !((c[front[0]] && c[front[1]]) || tstKick) };
+      }
+      // 모서리 3개는 안 되지만 꼼짝 못 하는 T = T-스핀 미니 (TETR.IO 와 같음)
+      return mode === 'all' && this.immobile() ? { name: 'T', mini: true } : null;
     }
     if (mode !== 'all') return null;
-    // 올스핀: 회전 직후 좌·우·위 어느 쪽으로도 못 움직이면 스핀
-    const stuck = this.collides(p.shape, p.x - 1, p.y) && this.collides(p.shape, p.x + 1, p.y) && this.collides(p.shape, p.x, p.y - 1);
-    return stuck ? { name: NAMES[p.type], mini: false } : null;
+    // 올스핀: 상하좌우 어느 쪽으로도 못 움직이면 스핀 (T 말고는 미니 - TETR.IO 기본 규칙)
+    return this.immobile() ? { name: NAMES[p.type], mini: true } : null;
+  }
+
+  immobile() {
+    const p = this.piece;
+    return this.collides(p.shape, p.x - 1, p.y) && this.collides(p.shape, p.x + 1, p.y) && this.collides(p.shape, p.x, p.y - 1) && this.collides(p.shape, p.x, p.y + 1);
   }
 
   hold() {
