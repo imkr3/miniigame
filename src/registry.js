@@ -7,6 +7,7 @@ export const GAMES = [
   { id: 'kart',     title: '카트 레이스', emoji: '🏎️', color: '#e11d48', desc: '드리프트와 아이템의 3D 레이스', load: () => import('./games/kart.js') },
   { id: 'bridge',   title: '다리 잇기', emoji: '🌉', color: '#f59e0b', desc: '눌러서 막대 늘리고 다리 건너기', load: () => import('./games/bridge.js') },
   { id: 'runner',   title: '점프 러너', emoji: '⚔️', color: '#65a30d', desc: '무기·증강으로 싸우는 플랫포머', load: () => import('./games/runner.js') },
+  { id: 'fps',      title: '스쿼드 슈터', emoji: '🔫', color: '#475569', desc: '봇 분대와 싸우는 1인칭 슈팅', load: () => import('./games/fps.js') },
 ];
 
 /**

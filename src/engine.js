@@ -844,7 +844,7 @@ export class GameBase {
       start = { x: e.clientX, y: e.clientY, fired: false };
       this.pointer.down = true;
       this._toLocal(e);
-      this.$screen.setPointerCapture?.(e.pointerId);
+      try { this.$screen.setPointerCapture?.(e.pointerId); } catch { /* 마우스가 화면에 잠긴 상태(1인칭 조준)에서는 잡을 수 없음 */ }
     });
     this.$screen.addEventListener('pointermove', (e) => {
       this._toLocal(e);

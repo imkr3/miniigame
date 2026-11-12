@@ -24,6 +24,7 @@ const MAX_MSG = 16 * 1024;
 export const GAME_LIMITS = {
   blocks: { max: 8 },
   kart: { max: 8 },
+  fps: { max: 8 },
 };
 
 export class RoomServer {

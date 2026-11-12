@@ -15,6 +15,26 @@ const SCALES = {
 
 // 패턴 글자: 드럼 x = 침, g = 약하게(고스트) / 베이스 R 근음 3 3도 5 5도 6 6도 7 7도 O 옥타브 L 아래 5도 a 다음 화음으로 이어지는 음 - 늘임 / 반주 x = 화음, - 늘임
 export const SONGS = {
+  // 스쿼드 슈터: 군악 느낌 - 행진 스네어, 묵직한 베이스, 짧은 금관 리프
+  fps: {
+    bpm: 126, root: 50, scale: 'minor', prog: [0, 0, 5, 6], progB: [3, 6, 0, 4], gain: 0.75,
+    drums: { k: 'x.......x..x....', s: '....x.gg....x.gx', h: 'x.x.x.x.x.x.x.x.' },
+    bass: { type: 'sawtooth', pat: 'R...R.R.R...R.5.', vol: 0.13, cutoff: 500 },
+    comp: { type: 'dist', style: 'power', pat: 'x.......x.....x.', vol: 0.03, short: true },
+    lead: { type: 'sawtooth', vol: 0.07, oct: 1 },
+    motif: [[0, 3, 0], [4, 1, 2], [6, 2, 4], [8, 4, 3], [16, 3, 0], [20, 1, 4], [22, 2, 6], [24, 6, 4]],
+    fill: true,
+  },
+  // 좀비 서바이벌: 느리고 어두운 맥박
+  'fps-zombie': {
+    bpm: 96, root: 45, scale: 'minor', prog: [0, 0, 1, 0], progB: [5, 4, 0, 0], gain: 0.8,
+    drums: { k: 'x.....x...x.....', s: '........x.......', h: '..x...x...x...x.' },
+    bass: { type: 'reese', pat: 'R-------R---L---', vol: 0.13 },
+    comp: { type: 'pad', style: 'triad', pat: 'x---------------', vol: 0.05 },
+    lead: { type: 'triangle', vol: 0.07, oct: 1, vibrato: true },
+    motif: [[0, 6, 0], [8, 4, 1], [12, 4, 0], [16, 6, 2], [24, 8, 0]],
+    breakdown: true,
+  },
   // 블록 낙하: 신스팝 - 당김음 반주, 손뼉, 하이햇 엇박
   blocks: {
     bpm: 150, root: 57, scale: 'minor', prog: [0, 5, 2, 6], progB: [3, 4, 5, 4], gain: 0.9,
