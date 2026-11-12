@@ -4,6 +4,7 @@
 // - 트랙별 장애물(hazards): 굴러오는 바위(협곡) / 용암 분출(화산) / 빙판(설산) — 시간으로 정해져서 멀티플레이에서도 모두 같게 보임
 // - 날씨 입자: 눈(설산) · 불씨(화산) · 꽃잎(햇살·구름)
 import * as THREE from '../../vendor/three.module.min.js';
+import { roundedBox, lathe, tube, ellipsoid, blob, part, merge } from './shapes.js';
 
 function canvasTex(w, h, draw) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -30,14 +31,13 @@ export function buildFeatures(track, g, quality = 1) {
   const okD = (d) => !track.inGap(d) && !track.inGap(d + 8) && !track.inGap(d - 8);
 
   // ---------- 급커브 화살표 표지판 ----------
-  const chevTex = (dir) => canvasTex(64, 32, (c, w, h) => {
-    c.fillStyle = '#facc15'; c.fillRect(0, 0, w, h);
-    c.fillStyle = '#111827';
-    for (const x0 of [6, 26, 46]) {
-      c.beginPath();
-      if (dir > 0) { c.moveTo(x0, 4); c.lineTo(x0 + 12, 16); c.lineTo(x0, 28); c.lineTo(x0 + 6, 28); c.lineTo(x0 + 18, 16); c.lineTo(x0 + 6, 4); }
-      else { c.moveTo(x0 + 18, 4); c.lineTo(x0 + 6, 16); c.lineTo(x0 + 18, 28); c.lineTo(x0 + 12, 28); c.lineTo(x0, 16); c.lineTo(x0 + 12, 4); }
-      c.fill();
+  const chevTex = (dir) => canvasTex(256, 128, (c, w, h) => {
+    c.fillStyle = '#111827'; c.fillRect(0, 0, w, h);
+    c.fillStyle = '#facc15'; c.beginPath(); c.roundRect(6, 6, w - 12, h - 12, 18); c.fill();
+    c.strokeStyle = '#111827'; c.lineWidth = 16; c.lineCap = 'round'; c.lineJoin = 'round';
+    for (const x0 of [44, 110, 176]) { // 끝이 둥근 화살표 3개
+      const a = dir > 0 ? x0 : x0 + 36, b = dir > 0 ? x0 + 36 : x0;
+      c.beginPath(); c.moveTo(a, 30); c.lineTo(b, h / 2); c.lineTo(a, h - 30); c.stroke();
     }
   });
   const signs = { 1: [], [-1]: [] };
@@ -57,8 +57,8 @@ export function buildFeatures(track, g, quality = 1) {
   for (const dir of [1, -1]) {
     const list = signs[dir];
     if (!list.length) continue;
-    const board = new THREE.InstancedMesh(new THREE.PlaneGeometry(3.2, 1.6), new THREE.MeshBasicMaterial({ map: chevTex(dir), side: THREE.DoubleSide }), list.length);
-    const pole = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.08, 0.08, 1.6, 5), new THREE.MeshLambertMaterial({ color: 0x374151 }), list.length * 2);
+    const board = new THREE.InstancedMesh(roundedBox(3.2, 1.6, 0.14, 0.07, 2), new THREE.MeshBasicMaterial({ map: chevTex(dir) }), list.length);
+    const pole = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.08, 1.5, 4, 10), new THREE.MeshLambertMaterial({ color: 0x374151 }), list.length * 2);
     list.forEach((p, k) => {
       q.setFromAxisAngle(up, p.h);
       board.setMatrixAt(k, m4.compose(new THREE.Vector3(p.x, p.y + 2.2, p.z), q, one));
@@ -73,14 +73,19 @@ export function buildFeatures(track, g, quality = 1) {
     for (const side of [-1, 1]) {
       const cx = s0.x + s0.nx * (track.wall + 7) * side, cz = s0.z + s0.nz * (track.wall + 7) * side;
       if (!clear(cx, cz, 6, s0.d, 60)) continue;
-      const crowd = canvasTex(128, 64, (c, w, h) => {
+      const crowd = canvasTex(512, 128, (c, w, h) => { // 계단식 좌석에 앉은 관중 (둥근 머리 + 몸)
         c.fillStyle = '#334155'; c.fillRect(0, 0, w, h);
-        for (let y = 4; y < h; y += 8) for (let x = 2; x < w; x += 5) {
-          c.fillStyle = ['#f87171', '#fbbf24', '#60a5fa', '#34d399', '#f472b6', '#e2e8f0', '#a78bfa'][Math.floor(Math.random() * 7)];
-          c.beginPath(); c.arc(x + Math.random() * 2, y + Math.random() * 2, 2, 0, Math.PI * 2); c.fill();
+        for (let y = 10; y < h; y += 24) {
+          c.fillStyle = '#475569'; c.fillRect(0, y + 12, w, 4);
+          for (let x = 8; x < w; x += 16) {
+            if (Math.random() < 0.12) continue;
+            const col = ['#f87171', '#fbbf24', '#60a5fa', '#34d399', '#f472b6', '#e2e8f0', '#a78bfa'][Math.floor(Math.random() * 7)], dx = Math.random() * 3;
+            c.fillStyle = col; c.beginPath(); c.roundRect(x - 5 + dx, y + 2, 10, 12, 4); c.fill();
+            c.fillStyle = ['#fde2c8', '#f1c9a5', '#d9a57c', '#8d5a3b'][Math.floor(Math.random() * 4)]; c.beginPath(); c.arc(x + dx, y - 1, 4, 0, Math.PI * 2); c.fill();
+          }
         }
       });
-      const stand = new THREE.Mesh(new THREE.BoxGeometry(26, 5, 7), [
+      const stand = new THREE.Mesh(roundedBox(26, 5, 7, 0.5, 3), [
         new THREE.MeshLambertMaterial({ color: 0x475569 }), new THREE.MeshLambertMaterial({ color: 0x475569 }),
         new THREE.MeshLambertMaterial({ color: 0x64748b }), new THREE.MeshLambertMaterial({ color: 0x475569 }),
         new THREE.MeshLambertMaterial({ map: crowd }), new THREE.MeshLambertMaterial({ map: crowd }),
@@ -89,8 +94,13 @@ export function buildFeatures(track, g, quality = 1) {
       stand.rotation.y = Math.atan2(s0.tx, s0.tz) + Math.PI / 2;
       stand.rotation.x = side * 0.12;
       g.add(stand);
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(27, 0.4, 8), new THREE.MeshLambertMaterial({ color: th.wallTop }));
-      roof.position.set(cx, s0.y + 7.5, cz); roof.rotation.y = stand.rotation.y;
+      stand.userData.cast = true;
+      // 둥근 지붕 + 받침 기둥
+      const roof = new THREE.Mesh(merge([
+        part(roundedBox(27.5, 0.5, 8.4, 0.25, 3), th.wallTop, 0, 7.6, 0),
+        ...[-12, -4, 4, 12].map((x) => part(new THREE.CylinderGeometry(0.16, 0.16, 5, 10), 0xe5e7eb, x, 5, -3.4)),
+      ]), new THREE.MeshLambertMaterial({ vertexColors: true }));
+      roof.position.set(cx, s0.y, cz); roof.rotation.y = stand.rotation.y; roof.userData.cast = true;
       g.add(roof);
     }
     // 깃발 줄 (출발선 앞뒤 60m)
@@ -101,14 +111,18 @@ export function buildFeatures(track, g, quality = 1) {
       if (dd > 60 || i % 4) continue;
       for (const side of [-1, 1]) flags.push({ x: s.x + s.nx * (track.wall + 1) * side, y: s.y, z: s.z + s.nz * (track.wall + 1) * side, c: flagCols[(i / 4 + (side > 0 ? 2 : 0)) % flagCols.length], h: Math.atan2(s.tx, s.tz) });
     }
-    const fl = new THREE.InstancedMesh(new THREE.ConeGeometry(0.5, 1.2, 3), new THREE.MeshLambertMaterial({ color: 0xffffff }), flags.length);
-    const pl = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, 3, 4), new THREE.MeshLambertMaterial({ color: 0xe5e7eb }), flags.length);
+    // 삼각 깃발: 바람에 살짝 물결치는 얇은 천 + 끝이 둥근 깃대
+    const pen = new THREE.PlaneGeometry(1.5, 1, 10, 1), pp = pen.attributes.position;
+    for (let i = 0; i < pp.count; i++) { const u = pp.getX(i) / 1.5 + 0.5; pp.setXYZ(i, u * 1.5, pp.getY(i) * (1 - u), Math.sin(u * 5) * 0.12 * u); }
+    pen.computeVertexNormals();
+    const fl = new THREE.InstancedMesh(pen, new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }), flags.length);
+    const pl = new THREE.InstancedMesh(merge([part(new THREE.CylinderGeometry(0.05, 0.06, 3.2, 10), 0xe5e7eb), part(new THREE.SphereGeometry(0.1, 10, 8), 0xfacc15, 0, 1.65, 0)]), new THREE.MeshLambertMaterial({ vertexColors: true }), flags.length);
     const col = new THREE.Color();
     flags.forEach((f, k) => {
       q.setFromAxisAngle(up, f.h);
       pl.setMatrixAt(k, m4.compose(new THREE.Vector3(f.x, f.y + 1.5, f.z), q, one));
-      const qq = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, f.h, Math.PI / 2));
-      fl.setMatrixAt(k, m4.compose(new THREE.Vector3(f.x, f.y + 2.6, f.z), qq, one));
+      const qq = new THREE.Quaternion().setFromAxisAngle(up, f.h + Math.PI / 2); // 깃발이 진행 반대쪽으로 날림
+      fl.setMatrixAt(k, m4.compose(new THREE.Vector3(f.x, f.y + 2.5, f.z), qq, one));
       fl.setColorAt(k, col.setHex(f.c));
     });
     g.add(fl, pl);
@@ -138,12 +152,16 @@ export function buildFeatures(track, g, quality = 1) {
     for (let k = 0; k < 4; k++) {
       const p = farSpot(80, 260, 8); if (!p) continue;
       const mill = new THREE.Group();
-      const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3.4, 14, 8), new THREE.MeshLambertMaterial({ color: 0xf5f5f4 }));
-      tower.position.y = 7; mill.add(tower);
-      const cap = new THREE.Mesh(new THREE.ConeGeometry(3, 3, 8), new THREE.MeshLambertMaterial({ color: 0xb91c1c }));
-      cap.position.y = 15.5; mill.add(cap);
-      const blades = new THREE.Group(); blades.position.set(0, 13, 2.6);
-      for (let i = 0; i < 4; i++) { const bl = new THREE.Mesh(new THREE.BoxGeometry(1.4, 9, 0.2), new THREE.MeshLambertMaterial({ color: 0xfef3c7 })); bl.position.y = 4.5; const arm = new THREE.Group(); arm.rotation.z = (i * Math.PI) / 2; arm.add(bl); blades.add(arm); }
+      const tower = new THREE.Mesh(merge([
+        part(lathe([[3.5, 0], [3.3, 0.6], [3.0, 3], [2.4, 10.5], [2.25, 14]], 24), 0xf5f5f4),
+        part(lathe([[2.75, 0], [2.6, 1.0], [1.7, 2.4], [0.5, 3.1], [0, 3.2]], 24), 0xb91c1c, 0, 14, 0),
+        part(roundedBox(1.5, 2.6, 0.3, 0.14, 2), 0x7c4a26, 0, 1.3, 3.3), part(ellipsoid(0.6, 0.75, 0.15, 14, 10), 0x93c5fd, 0, 8, 2.62),
+      ]), new THREE.MeshLambertMaterial({ vertexColors: true }));
+      tower.userData.cast = true; mill.add(tower);
+      const blades = new THREE.Group(); blades.position.set(0, 13, 2.75);
+      const bparts = [part(new THREE.SphereGeometry(0.6, 14, 10), 0x7c4a26)];
+      for (let i = 0; i < 4; i++) { const a = (i * Math.PI) / 2; bparts.push(part(roundedBox(1.5, 7.6, 0.14, 0.07, 2), 0xfef3c7, -Math.sin(a) * 5, Math.cos(a) * 5, 0, 0, 0, a), part(new THREE.CylinderGeometry(0.1, 0.1, 9, 8), 0x7c4a26, -Math.sin(a) * 4.5, Math.cos(a) * 4.5, 0.1, 0, 0, a)); }
+      blades.add(new THREE.Mesh(merge(bparts), new THREE.MeshLambertMaterial({ vertexColors: true })));
       mill.add(blades);
       mill.position.set(p.x, 0, p.z); mill.rotation.y = Math.atan2(cxm - p.x, czm - p.z);
       g.add(mill);
@@ -156,10 +174,12 @@ export function buildFeatures(track, g, quality = 1) {
       const d = f * track.length;
       if (!okD(d) || made >= 3) continue;
       if (archOver(d, () => {
-        const a = new THREE.Group(), rock = new THREE.MeshLambertMaterial({ color: 0xb45309, flatShading: true });
-        const R = track.wall + 2.5;
-        const arc = new THREE.Mesh(new THREE.TorusGeometry(R, 2.2, 6, 14, Math.PI), rock);
-        arc.scale.set(1, 0.75, 1); a.add(arc);
+        const a = new THREE.Group();
+        const R = track.wall + 3.4;
+        const band = (y) => [0xc98a4e, 0xb26e3a, 0xd9a066, 0xa85f30][Math.floor((y + 40) / 1.4) % 4];
+        const arc = new THREE.Mesh(merge([part(new THREE.TorusGeometry(R, 2.3, 14, 40, Math.PI), (x, y) => band(y), 0, 0, 0, 0, 0, 0, 1, 0.75, 1.25),
+          ...[-1, 1].map((sd) => part(blob(3.2, 2, 0.2, 5 + sd), (x, y) => band(y), sd * R, 1.2, 0, 0, 0, 0, 1, 0.8, 1.2))]), new THREE.MeshLambertMaterial({ vertexColors: true }));
+        arc.userData.cast = true; a.add(arc);
         return a;
       })) made++;
     }
@@ -169,7 +189,7 @@ export function buildFeatures(track, g, quality = 1) {
     for (let d = 40; d < track.length - 30; d += 110) {
       if (!okD(d)) continue;
       archOver(d, () => {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(track.wall + 0.8, 0.35, 8, 40, Math.PI), new THREE.MeshBasicMaterial({ color: cols[k++ % cols.length] }));
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(track.wall + 1.2, 0.36, 12, 56, Math.PI), new THREE.MeshBasicMaterial({ color: cols[k++ % cols.length] }));
         anims.push({ kind: 'pulse', obj: ring, phase: k });
         return ring;
       });
@@ -183,37 +203,36 @@ export function buildFeatures(track, g, quality = 1) {
         c.fillStyle = c.strokeStyle; c.font = '900 48px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
         c.fillText(words[i % words.length], w / 2, h / 2 + 2);
       });
-      const bb = new THREE.Mesh(new THREE.PlaneGeometry(14, 5.2), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+      const bb = new THREE.Mesh(roundedBox(14, 5.2, 0.5, 0.25, 2), new THREE.MeshBasicMaterial({ map: tex }));
       bb.position.set(p.x, 14, p.z); bb.rotation.y = Math.atan2(cxm - p.x, czm - p.z);
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 12, 6), new THREE.MeshLambertMaterial({ color: 0x334155 }));
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 12, 14), new THREE.MeshLambertMaterial({ color: 0x334155 }));
       post.position.set(p.x, 6, p.z);
       g.add(bb, post);
     }
   } else if (kind === 'pines') { // 설산: 눈사람
     const list = [];
     for (let k = 0; k < 14; k++) { const p = farSpot(20, 200, 2); if (p) list.push(p); }
-    const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const body = new THREE.InstancedMesh(new THREE.SphereGeometry(1.6, 10, 8), white, list.length);
-    const head = new THREE.InstancedMesh(new THREE.SphereGeometry(1.05, 10, 8), white, list.length);
-    const hat = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.6, 0.7, 0.9, 8), new THREE.MeshLambertMaterial({ color: 0x1f2937 }), list.length);
-    const nose = new THREE.InstancedMesh(new THREE.ConeGeometry(0.18, 0.8, 6), new THREE.MeshLambertMaterial({ color: 0xf97316 }), list.length);
-    list.forEach((p, k) => {
-      const rq = new THREE.Quaternion().setFromAxisAngle(up, Math.atan2(cxm - p.x, czm - p.z));
-      body.setMatrixAt(k, m4.compose(new THREE.Vector3(p.x, 1.4, p.z), rq, one));
-      head.setMatrixAt(k, m4.compose(new THREE.Vector3(p.x, 3.6, p.z), rq, one));
-      hat.setMatrixAt(k, m4.compose(new THREE.Vector3(p.x, 4.8, p.z), rq, one));
-      const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(rq);
-      const nq = rq.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2));
-      nose.setMatrixAt(k, m4.compose(new THREE.Vector3(p.x + fwd.x * 1.2, 3.6, p.z + fwd.z * 1.2), nq, one));
-    });
-    g.add(body, head, hat, nose);
+    const sp = (r) => (r > 0.5 ? new THREE.SphereGeometry(r, 18, 12) : new THREE.SphereGeometry(r, 6, 4)), BLK = 0x1f2937;
+    const man = merge([
+      part(sp(1.6), 0xffffff, 0, 1.4, 0), part(sp(1.05), 0xffffff, 0, 3.6, 0),
+      part(new THREE.CylinderGeometry(0.62, 0.66, 0.9, 18), BLK, 0, 4.85, 0), part(new THREE.CylinderGeometry(1.0, 1.0, 0.1, 20), BLK, 0, 4.42, 0), part(new THREE.CylinderGeometry(0.67, 0.67, 0.2, 18), 0xef4444, 0, 4.55, 0),
+      part(lathe([[0.17, 0], [0.1, 0.45], [0, 0.85]], 10), 0xf97316, 0, 3.6, 1.0, Math.PI / 2),
+      part(sp(0.1), BLK, -0.35, 3.9, 0.95), part(sp(0.1), BLK, 0.35, 3.9, 0.95),
+      ...[-0.3, -0.15, 0, 0.15, 0.3].map((x) => part(sp(0.06), BLK, x, 3.3 + Math.abs(x) * 0.4, 0.97)),
+      ...[2.3, 1.7, 1.1].map((y) => part(sp(0.13), BLK, 0, y, Math.sqrt(Math.max(0, 2.56 - (y - 1.4) ** 2)) + 0.02)),
+      part(new THREE.TorusGeometry(0.85, 0.2, 10, 24), 0xef4444, 0, 2.85, 0, Math.PI / 2), part(roundedBox(0.34, 1.0, 0.16, 0.08, 2), 0xef4444, 0.5, 2.4, 0.75, 0.15, 0, -0.1),
+      part(tube([[1.3, 2.2, 0], [2.2, 2.9, 0.1], [2.7, 3.5, 0.1]], 0.06, 8, 6), 0x6d4526), part(tube([[-1.3, 2.2, 0], [-2.2, 2.9, 0.1], [-2.7, 3.5, 0.1]], 0.06, 8, 6), 0x6d4526),
+    ]);
+    const men = new THREE.InstancedMesh(man, new THREE.MeshLambertMaterial({ vertexColors: true }), list.length);
+    list.forEach((p, k) => men.setMatrixAt(k, m4.compose(new THREE.Vector3(p.x, 0, p.z), q.setFromAxisAngle(up, Math.atan2(cxm - p.x, czm - p.z)), one)));
+    g.add(men);
   } else if (kind === 'clouds') { // 구름 정원: 무지개 아치 + 떠 있는 섬의 폭포 + 열기구
     for (const f of [0.12, 0.5]) {
       const d = f * track.length;
       if (!okD(d)) continue;
       const s = track.at(d), rainbow = new THREE.Group();
       [0xef4444, 0xf97316, 0xfacc15, 0x22c55e, 0x3b82f6, 0x8b5cf6].forEach((c, i) => {
-        rainbow.add(new THREE.Mesh(new THREE.TorusGeometry(track.wall + 4 - i * 0.7, 0.36, 6, 40, Math.PI), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.85 })));
+        rainbow.add(new THREE.Mesh(new THREE.TorusGeometry(track.wall + 4.6 - i * 0.7, 0.36, 10, 64, Math.PI), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.85 })));
       });
       rainbow.position.set(s.x, s.y - 1, s.z); rainbow.rotation.y = Math.atan2(s.tx, s.tz);
       g.add(rainbow);
@@ -225,10 +244,10 @@ export function buildFeatures(track, g, quality = 1) {
     for (let k = 0; k < 5; k++) {
       const p = farSpot(60, 220, 10); if (!p) continue;
       const y0 = rnd(20, 40);
-      const isl = new THREE.Mesh(new THREE.CylinderGeometry(9, 2, 7, 8), new THREE.MeshLambertMaterial({ color: 0x8b5e3c }));
+      const isl = new THREE.Mesh(merge([part(lathe([[0.5, -6], [3.4, -3.6], [7.2, -0.6], [9.2, 2.6], [9.3, 3.6], [8.2, 4.3], [0, 4.7]], 28), (x, y) => (y > 3.2 ? 0x86e3a0 : y > -1 ? 0x9a6f48 : 0x7c5636)),
+        part(blob(2.2, 2, 0.14, 3), 0x4fae52, -2.5, 7.4, 1), part(lathe([[0.5, 0], [0.32, 0.5], [0.28, 3]], 10), 0x8a5a33, -2.5, 4.5, 1)]), new THREE.MeshLambertMaterial({ vertexColors: true }));
       isl.position.set(p.x, y0, p.z);
-      const top = new THREE.Mesh(new THREE.CylinderGeometry(9.2, 9.2, 1.2, 8), new THREE.MeshLambertMaterial({ color: 0x86efac }));
-      top.position.set(p.x, y0 + 3.8, p.z);
+      const top = new THREE.Object3D();
       const fall = new THREE.Mesh(new THREE.PlaneGeometry(4, 60), new THREE.MeshBasicMaterial({ map: fallTex, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
       fall.position.set(p.x + 8.5, y0 - 27, p.z); fall.rotation.y = Math.PI / 2;
       g.add(isl, top, fall);
@@ -256,8 +275,13 @@ export function buildFeatures(track, g, quality = 1) {
     const p = farSpot(40, 160, 5);
     if (p) {
       const lh = new THREE.Group();
-      for (let i = 0; i < 6; i++) { const seg = new THREE.Mesh(new THREE.CylinderGeometry(2.4 - i * 0.2, 2.6 - i * 0.2, 4, 12), new THREE.MeshLambertMaterial({ color: i % 2 ? 0xffffff : 0xef4444 })); seg.position.y = 2 + i * 4; lh.add(seg); }
-      const lamp = new THREE.Mesh(new THREE.SphereGeometry(1.4, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfef08a }));
+      const twr = new THREE.Mesh(merge([
+        part(lathe([[3.2, 0], [3.0, 0.8], [2.6, 1.2], [1.5, 24]], 28), (x, y) => (Math.floor((y - 1.2) / 3.8) % 2 ? 0xffffff : 0xef4444)),
+        part(lathe([[1.5, 0], [2.2, 0.25], [2.2, 0.6], [1.5, 0.7]], 28), 0x334155, 0, 23.8, 0),
+        part(lathe([[1.75, 0], [1.6, 0.8], [0.9, 1.7], [0.15, 2.3], [0, 2.9]], 24), 0xef4444, 0, 26.9, 0),
+      ]), new THREE.MeshLambertMaterial({ vertexColors: true }));
+      twr.userData.cast = true; lh.add(twr);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(1.4, 20, 14), new THREE.MeshBasicMaterial({ color: 0xfef08a }));
       lamp.position.y = 25.5; lh.add(lamp);
       lh.position.set(p.x, 0, p.z); g.add(lh);
       anims.push({ kind: 'pulse2', obj: lamp });
@@ -270,12 +294,12 @@ export function buildFeatures(track, g, quality = 1) {
     lavaTex.wrapT = THREE.RepeatWrapping;
     for (let k = 0; k < 4; k++) {
       const p = farSpot(70, 220, 10); if (!p) continue;
-      const cliff = new THREE.Mesh(new THREE.BoxGeometry(18, 26, 10), new THREE.MeshLambertMaterial({ color: 0x292524, flatShading: true }));
-      cliff.position.set(p.x, 13, p.z); cliff.rotation.y = Math.atan2(cxm - p.x, czm - p.z);
+      const cliff = new THREE.Mesh(merge([part(blob(1, 3, 0.16, k + 2), (x, y) => (y > 20 ? 0x4a4441 : 0x2b2725), 0, -1, 0, 0, 0, 0, 10, 15, 5.4)]), new THREE.MeshLambertMaterial({ vertexColors: true }));
+      cliff.position.set(p.x, 13, p.z); cliff.userData.cast = true; cliff.rotation.y = Math.atan2(cxm - p.x, czm - p.z);
       const fall = new THREE.Mesh(new THREE.PlaneGeometry(4, 26), new THREE.MeshBasicMaterial({ map: lavaTex, side: THREE.DoubleSide }));
       const fwd = new THREE.Vector3(Math.sin(cliff.rotation.y), 0, Math.cos(cliff.rotation.y));
       fall.position.set(p.x + fwd.x * 5.1, 13, p.z + fwd.z * 5.1); fall.rotation.y = cliff.rotation.y;
-      const pool = new THREE.Mesh(new THREE.CircleGeometry(5, 14), new THREE.MeshBasicMaterial({ color: 0xf97316 }));
+      const pool = new THREE.Mesh(new THREE.CircleGeometry(5, 36), new THREE.MeshBasicMaterial({ color: 0xf97316 }));
       pool.rotation.x = -Math.PI / 2; pool.position.set(p.x + fwd.x * 8, 0.15, p.z + fwd.z * 8);
       g.add(cliff, fall, pool);
       anims.push({ kind: 'flow', tex: lavaTex, speed: 0.6 });
@@ -288,7 +312,7 @@ export function buildFeatures(track, g, quality = 1) {
   for (const gp of track.gaps) {
     [0.3, 0.55, 0.8].forEach((f, k) => {
       const d = gp.from + (gp.to - gp.from) * f, p = track.at(d);
-      const mesh = new THREE.Mesh(new THREE.TorusGeometry(4.2, 0.4, 8, 28), new THREE.MeshBasicMaterial({ color: ringCols[k] }));
+      const mesh = new THREE.Mesh(new THREE.TorusGeometry(4.2, 0.4, 12, 48), new THREE.MeshBasicMaterial({ color: ringCols[k] }));
       const y = p.y + 2.5;
       mesh.position.set(p.x, y, p.z); mesh.rotation.y = Math.atan2(p.tx, p.tz);
       g.add(mesh);
@@ -302,7 +326,8 @@ export function buildFeatures(track, g, quality = 1) {
   for (const hz of def.hazards ?? []) {
     const d = hz.at * track.length, s = track.at(d);
     if (hz.type === 'boulder') { // 길을 가로질러 굴러가는 바위 (주기 7초, 1초 전에 그림자 경고)
-      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(2.1, 0), new THREE.MeshLambertMaterial({ color: 0x92400e, flatShading: true }));
+      const rock = new THREE.Mesh(merge([part(blob(2.1, 2, 0.16, 9), (x, y, z) => (Math.sin(x * 2.2) * Math.sin(y * 2.6 + z) > 0.25 ? 0x7c3a12 : 0x9a4b16))]), new THREE.MeshLambertMaterial({ vertexColors: true }));
+      rock.userData.cast = true;
       const warn = new THREE.Mesh(new THREE.RingGeometry(1.6, 2.4, 20), new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
       warn.rotation.x = -Math.PI / 2;
       rock.userData.keep = warn.userData.keep = true; // 장애물은 도로 위에 있어야 함
@@ -366,12 +391,14 @@ function addBalloons(g, anims, farSpot, n) {
   for (let k = 0; k < n; k++) {
     const p = farSpot(60, 260, 6); if (!p) continue;
     const bal = new THREE.Group();
-    const env = new THREE.Mesh(new THREE.SphereGeometry(4, 12, 10), new THREE.MeshLambertMaterial({ color: cols[k % cols.length] }));
-    env.scale.y = 1.2; bal.add(env);
-    const stripe = new THREE.Mesh(new THREE.SphereGeometry(4.05, 12, 4, 0, Math.PI * 2, Math.PI * 0.42, Math.PI * 0.16), new THREE.MeshLambertMaterial({ color: 0xffffff }));
-    stripe.scale.y = 1.2; bal.add(stripe);
-    const basket = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.2, 1.6), new THREE.MeshLambertMaterial({ color: 0x92400e }));
-    basket.position.y = -6.4; bal.add(basket);
+    const c0 = cols[k % cols.length];
+    const stripe = (x, y, z) => (Math.floor((Math.atan2(z, x) / (Math.PI * 2) + 1) * 12 + 0.25) % 2 ? 0xffffff : c0);
+    bal.add(new THREE.Mesh(merge([
+      part(lathe([[0.7, -5.2], [1.7, -4.3], [3.3, -2.2], [4.1, 0.4], [3.7, 2.8], [2.3, 4.3], [0.8, 4.9], [0, 5]], 24), stripe),
+      part(new THREE.TorusGeometry(0.75, 0.12, 8, 18), 0x7c4a26, 0, -5.2, 0, Math.PI / 2),
+      part(roundedBox(1.7, 1.2, 1.7, 0.3, 3), 0xa16207, 0, -7.2, 0), part(new THREE.TorusGeometry(0.95, 0.1, 8, 20), 0x7c4a26, 0, -6.62, 0, Math.PI / 2),
+      ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, b2]) => part(new THREE.CylinderGeometry(0.025, 0.025, 1.5, 5), 0x4b3621, a * 0.68, -5.95, b2 * 0.68)),
+    ]), new THREE.MeshLambertMaterial({ vertexColors: true })));
     const y0 = rnd(28, 55);
     bal.position.set(p.x, y0, p.z);
     g.add(bal);

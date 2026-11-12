@@ -19,6 +19,7 @@ const HIT = {
   tornado: { spin: 1.4, keep: 0.3, vy: 9 }, bumper: { spin: 0.55, keep: 0.6 }, laser: { spin: 1, keep: 0.35, vy: 3.5 },
 };
 const OBJ_R = { oil: 1.9, mine: 1.6, smoke: 4.2, cone: 1.3, glue: 2.3, tornado: 2.6 }; // 아이템 물체 판정 반지름
+const SHADOW_R = 62; // 그림자를 계산하는 범위(m)
 const SLOW_R = 11, LASER_R = 70;
 const DRIFT_BOOST = [0, 0.7, 1.1, 1.6];       // 단계별 미니 터보 시간
 const TURBO_NAMES = ['', '미니 터보!', '슈퍼 터보!', '울트라 터보!'];
@@ -113,7 +114,7 @@ export default class Kart extends GameBase {
     this.$screen.insertBefore(cv, this.canvas);
     // 그래픽 장치가 잠깐 끊기면(모바일 탭 전환·드라이버 재시작) 다시 연결될 때까지 기다렸다 복구
     this._onLost = (e) => { e.preventDefault(); this.glLost = performance.now(); };
-    this._onRestored = () => { this.glLost = 0; this.ratio = undefined; const r = this.$screen.getBoundingClientRect(); if (r.width) this.onResize(r.width, r.height); };
+    this._onRestored = () => { this.glLost = 0; this.ratio = undefined; this.makeEnvironment(); const r = this.$screen.getBoundingClientRect(); if (r.width) this.onResize(r.width, r.height); };
     cv.addEventListener('webglcontextlost', this._onLost);
     cv.addEventListener('webglcontextrestored', this._onRestored);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -123,7 +124,14 @@ export default class Kart extends GameBase {
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 1.1);
     this.sun = new THREE.DirectionalLight(0xffffff, 1.6);
     this.sun.position.set(80, 140, 40);
-    this.scene.add(this.hemi, this.sun);
+    this.scene.add(this.hemi, this.sun, this.sun.target);
+    // 실시간 그림자: 해가 플레이어 주변 100m 를 비춤 (품질 '낮음'에서는 끔)
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    const sh = this.sun.shadow;
+    sh.camera.left = sh.camera.bottom = -SHADOW_R; sh.camera.right = sh.camera.top = SHADOW_R; sh.camera.near = 10; sh.camera.far = 420;
+    sh.bias = -0.0006; sh.normalBias = 0.06;
+    this.applyShadowQuality();
     this.sparks = new Sparks(500);
     this.scene.add(this.sparks.points);
     this.dyn = new THREE.Group(); // 레이서·아이템
@@ -144,7 +152,37 @@ export default class Kart extends GameBase {
     this.camera3.updateProjectionMatrix();
   }
 
-  onSettingsChange(id) { if (id === 'quality') { const r = this.$screen.getBoundingClientRect(); this.onResize(r.width, r.height); } }
+  onSettingsChange(id) { if (id === 'quality') { const r = this.$screen.getBoundingClientRect(); this.onResize(r.width, r.height); this.applyShadowQuality(); } }
+
+  applyShadowQuality() {
+    const q = this.cfg?.quality ?? 'normal', size = q === 'high' ? 2048 : 1024;
+    this.shadowsOn = q !== 'low';
+    this.sun.castShadow = this.shadowsOn;
+    if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
+  }
+
+  /** 광택 재질에 비치는 주변 환경 (하늘·땅 색 + 밝은 조명) 을 트랙 분위기에 맞춰 만듦 */
+  makeEnvironment() {
+    const th = this.track?.def.theme; if (!th) return;
+    const pm = new THREE.PMREMGenerator(this.renderer), sc = new THREE.Scene();
+    const geo = new THREE.SphereGeometry(60, 32, 20), pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
+    const sky = new THREE.Color(th.sky), hor = new THREE.Color(th.fog).lerp(new THREE.Color(0xffffff), th.night ? 0 : 0.35), gnd = new THREE.Color(th.ground).multiplyScalar(0.55), c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const t = pos.getY(i) / 60;
+      if (t >= 0) c.copy(hor).lerp(sky, Math.min(1, t * 1.6)); else c.copy(hor).lerp(gnd, Math.min(1, -t * 4));
+      if (th.night) c.multiplyScalar(0.7);
+      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    sc.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+    const lamp = (x, y, z, r, color, k) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshBasicMaterial({ color })); m.material.color.multiplyScalar(k); m.position.set(x, y, z); sc.add(m); };
+    if (th.night) { lamp(30, 22, 10, 7, 0xf472b6, 5); lamp(-28, 18, -16, 7, 0x22d3ee, 5); lamp(4, 30, -30, 6, 0xa855f7, 4); lamp(-8, 40, 26, 5, 0xfde68a, 3); }
+    else { lamp(26, 44, 14, 9, th.sun, 7); lamp(-30, 26, -20, 12, 0xffffff, 1.6); }
+    this.scene.environment?.dispose?.();
+    this.scene.environment = pm.fromScene(sc, 0.035).texture;
+    this.scene.environmentIntensity = th.night ? 0.8 : 0.55;
+    pm.dispose(); geo.dispose();
+  }
 
   onDestroy() {
     if (!this.renderer) return;
@@ -185,6 +223,15 @@ export default class Kart extends GameBase {
     this.hemi.intensity = th.night ? 0.55 : 1.1;
     this.sun.intensity = th.night ? 0.5 : 1.6;
     this.sun.color.setHex(th.sun);
+    this.makeEnvironment();
+    // 그림자: 도로·땅은 받고, 장식(나무·건물·기둥)은 드리움. 빛나는(Basic) 재질·투명한 것은 제외
+    this.trackGroup.traverse((o) => {
+      if (!o.isMesh) return;
+      const m = [].concat(o.material)[0];
+      o.receiveShadow = !m.isMeshBasicMaterial && !o.isInstancedMesh; // 장식끼리는 그림자를 받지 않음 (얼룩져 보이지 않게)
+      // 나무·바위처럼 수백 개씩 있는 장식은 '높음'에서만 그림자를 드리움 (그림자용으로 한 번 더 그려야 해서 무거움)
+      o.castShadow = ((o.isInstancedMesh && (this.cfg.quality === 'high' || o.count < 60)) || o.userData.cast) && !m.transparent && !m.isMeshBasicMaterial && !o.userData.noCast;
+    });
     // 미니맵 경로 (2D)
     const b = this.track.bounds, s = Math.min(104 / (b.maxX - b.minX), 104 / (b.maxZ - b.minZ));
     this.mini = { s, ox: (b.minX + b.maxX) / 2, oz: (b.minZ + b.maxZ) / 2 };
@@ -1036,6 +1083,10 @@ export default class Kart extends GameBase {
     m.glider.visible = r.gliding;
     if (r.gliding) m.glider.rotation.z = Math.sin(performance.now() / 300) * 0.05;
     m.shadow.visible = r.grounded || r.y - (r.lastGroundY ?? r.y) < 6;
+    // 실시간 그림자는 카메라에서 가까운 카트만 (멀리 있는 카트는 바닥 그림자만) → 그림자용 그리기 부담을 줄임
+    const cp = this.camera3.position, nearCam = this.shadowsOn && (r.x - cp.x) ** 2 + (r.z - cp.z) ** 2 < 55 * 55;
+    if (m.nearCam !== nearCam) { m.nearCam = nearCam; for (const o of m.casters ?? []) o.castShadow = nearCam; }
+    m.shadow.material.opacity = nearCam ? 0.2 : 0.5;
     for (const w of m.wheels) w.rotation.x += r.speed * 0.04;
     r.turboFlash = Math.max(0, (r.turboFlash ?? 0) - dt);
     const boost = r.boostT > 0;
@@ -1541,7 +1592,15 @@ export default class Kart extends GameBase {
       if (this.glLost) {
         // 3초 넘게 복구가 안 되면 직접 다시 연결 요청
         if (performance.now() - this.glLost > 3000) { this.glLost = performance.now(); this.renderer.forceContextRestore?.(); }
-      } else this.renderer.render(this.scene, this.camera3);
+      } else {
+        if (this.shadowsOn) { // 해 그림자 영역을 카메라가 보는 곳 주변으로 옮김
+          const f = this.phase === 'select' || !this.phase ? this.track.samples[0] : this.player ?? this.track.samples[0];
+          const cam = this.camera3, fx = f.x + (f.x - cam.position.x) * 2.2, fz = f.z + (f.z - cam.position.z) * 2.2;
+          this.sun.target.position.set(fx, f.y, fz);
+          this.sun.position.set(fx + 90, f.y + 190, fz + 55);
+        }
+        this.renderer.render(this.scene, this.camera3);
+      }
       if (!idle) this.adaptResolution();
     }
     if (this.phase === 'select') return this.drawSelect(ctx);
