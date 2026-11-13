@@ -59,7 +59,7 @@ const CSS = `
 .fps-xp{height:4px;background:#1f2937;border-radius:2px;margin-top:3px;overflow:hidden}.fps-xp i{display:block;height:100%;background:#fbbf24}
 .fps-row{display:grid;grid-template-columns:26px 1fr 26px;align-items:center;gap:4px;padding:4px 6px;border-radius:9px;border:1.5px solid transparent;margin-bottom:3px;background:rgba(255,255,255,.04)}
 .fps-row.on{border-color:#60a5fa;background:rgba(59,130,246,.16)}
-.fps-row small{display:block;font-size:10px;color:#9ca3af}.fps-row b{font-size:14px}.fps-row em{display:block;font-style:normal;font-size:10px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fps-row small{display:block;font-size:10px;color:#9ca3af}.fps-row b{font-size:14px}.fps-row em{display:block;font-style:normal;font-size:10px;color:#cbd5e1;overflow:hidden}
 .fps-row button{all:unset;cursor:pointer;text-align:center;font-size:15px;color:#e5e7eb;border-radius:6px;height:30px;line-height:30px}
 .fps-row button:active{background:rgba(255,255,255,.15)}
 .fps-go{all:unset;display:block;cursor:pointer;margin-top:6px;text-align:center;background:#3b82f6;color:#fff;font-weight:800;font-size:15px;border-radius:999px;padding:8px 0;width:100%}
@@ -233,7 +233,10 @@ export default class Fps extends GameBase {
   }
   rows() {
     const m = MODES[this.sel.mode], mp = MAPS[this.sel.map], w = WEAPONS[PRIMARIES[this.sel.weapon]], d = DIFFS[this.cfg.difficulty] ?? DIFFS.normal;
-    return [['모드', m.name, m.desc], ['전장', `${mp.emoji} ${mp.name}`, ''], ['주무기', w.name, w.desc], ['봇 실력', d.name, '']];
+    // 주무기 능력치 막대: 피해 · 연사 · 사거리 · 기동
+    const bar = (v) => '▰'.repeat(Math.round(clamp(v, 0.1, 1) * 5)).padEnd(5, '▱');
+    const stat = `피해 ${bar(w.dmg * (w.pellets ?? 1) / 100)} · 연사 ${bar(w.rpm / 880)}<br>사거리 ${bar(w.range[0] / 60)} · 기동 ${bar((w.speed - 0.8) / 0.3)}`;
+    return [['모드', m.name, m.desc], ['전장', `${mp.emoji} ${mp.name}`, ''], ['주무기', w.name, `${w.desc}<br>${stat}`], ['봇 실력', d.name, '']];
   }
   renderMenu() {
     const rk = rankOf(this.xp), pct = rk.next ? ((this.xp - rk.base) / (rk.next - rk.base)) * 100 : 100;
@@ -808,6 +811,13 @@ export default class Fps extends GameBase {
       if (a.ai && !this.matchOver && this.startT <= 0.6) (a.zombie ? updateZombie : updateBot)(this, a, dt);
       else if (a.ai) this.stepActor(a, 0, 0, dt);
     }
+    // 가까운 적의 발소리 (뛰는 적만, 앉아서 걸으면 안 들림)
+    if (p.alive) for (const a of this.actors) {
+      if (!a.alive || a === p || a.team === p.team || a.crouch || !a.grounded) continue;
+      const sp = Math.hypot(a.vx, a.vz), d = Math.hypot(a.x - p.x, a.z - p.z);
+      if (sp < 3 || d > 15) continue;
+      if ((a.stepT = (a.stepT ?? 0) - dt * sp) <= 0) { a.stepT = 3.2; this.soundAt(a.x, a.z, { vol: a.zombie ? 0.09 : 0.14, freq: a.zombie ? 180 : 260, dur: 0.07, type: 'lowpass' }); }
+    }
     this.separate();
     this.updateGrenades(dt);
     this.updatePickups(dt);
@@ -1003,6 +1013,21 @@ export default class Fps extends GameBase {
       ctx.beginPath(); ctx.arc(0, 0, 70, -Math.PI / 2 - 0.28, -Math.PI / 2 + 0.28); ctx.stroke(); ctx.restore();
     }
     ctx.globalAlpha = 1; ctx.lineCap = 'butt';
+    // 근처 수류탄 경고: 수류탄이 있는 방향에 노란 표시 (9m 안)
+    if (p.alive) for (const g of this.grenades) {
+      const d = Math.hypot(g.x - p.x, g.z - p.z); if (d > 9) continue;
+      const ang = wrap(Math.atan2(-(g.x - p.x), -(g.z - p.z)) - p.yaw), r = 46;
+      const gx = W / 2 - Math.sin(ang) * r, gy = H / 2 - Math.cos(ang) * r;
+      ctx.globalAlpha = Math.floor(this.time * 10) % 2 ? 1 : 0.55;
+      ctx.fillStyle = 'rgba(250,204,21,.9)'; ctx.beginPath(); ctx.arc(gx, gy, 9, 0, Math.PI * 2); ctx.fill();
+      text('!', gx, gy + 4, F(12), '#1f2937', 'center'); text(`💣 ${d.toFixed(0)}m`, gx, gy + 20, F(8), '#fde68a', 'center');
+      ctx.globalAlpha = 1;
+    }
+    // 탄약 안내
+    if (p.alive && !def.melee && !def.throw && p.reloadT <= 0 && this.startT <= 0) {
+      if (w.mag === 0 && w.reserve === 0) text('탄약 없음 - 다른 무기로 바꾸세요', W / 2, H / 2 + 46, F(10), '#f87171', 'center');
+      else if (w.mag <= def.mag * 0.25 && w.reserve > 0) text(this.touchMode ? '탄약 부족 - 장전' : '탄약 부족 - R 재장전', W / 2, H / 2 + 46, F(10), '#fde68a', 'center');
+    }
     // 피해·낮은 체력: 화면 가장자리 붉게
     const low = p.alive ? Math.max(0, 1 - p.hp / 45) : 0, red = Math.max(this.hurtT > 0 ? this.hurtT * 1.2 : 0, low * 0.6);
     if (red > 0.02) { const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.75); g.addColorStop(0, 'rgba(200,0,0,0)'); g.addColorStop(1, `rgba(200,0,0,${Math.min(0.7, red)})`); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }

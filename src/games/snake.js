@@ -3,7 +3,8 @@ import { sfx } from '../sfx.js';
 
 // 스네이크
 // - 부드러운 이동(칸 사이를 미끄러지듯), 빨리 연속으로 먹으면 콤보
-// - 아이템: 황금 별(보너스), 얼음 사과(잠깐 느려짐), 가위(꼬리 3칸 잘라냄)
+// - 아이템: 황금 별(보너스), 얼음 사과(잠깐 느려짐), 가위(꼬리 3칸 잘라냄), 유령(5초 동안 내 몸 통과)
+// - 첫 방향을 누를 때까지 출발하지 않고 기다림
 // - 설정: 속도, 벽 통과, 장애물 모드
 const COLS = 20, ROWS = 20, CELL = 20;
 const W = COLS * CELL, H = ROWS * CELL;
@@ -53,6 +54,8 @@ export default class Snake extends GameBase {
     this.combo = 0;
     this.comboT = 0;
     this.slowT = 0;
+    this.ghostT = 0;
+    this.hold = true; // 첫 방향 입력을 기다림
     this.bonus = null;
     this.item = null;
     this.rocks = [];
@@ -143,7 +146,7 @@ export default class Snake extends GameBase {
   }
 
   updateInfo() {
-    const fx = [this.slowT > 0 && '🧊', this.combo > 1 && `콤보 ×${this.combo}`].filter(Boolean).join(' ');
+    const fx = [this.slowT > 0 && '🧊', this.ghostT > 0 && '👻', this.combo > 1 && `콤보 ×${this.combo}`].filter(Boolean).join(' ');
     const head = this.stageMode ? `스테이지 ${this.stageNo} · 남은 먹이 ${Math.max(0, this.stageGoal - this.stageEat)}` : `길이 ${this.snake.length}`;
     this.setInfo(`${head}${fx ? ` · ${fx}` : ''}`);
   }
@@ -151,6 +154,7 @@ export default class Snake extends GameBase {
   onAction(action) {
     const d = DIRS[action];
     if (!d) return;
+    if (this.hold) { this.hold = false; this.timer = 0; if (d.x === -this.dir.x && d.y === -this.dir.y) return; } // 아무 방향이나 누르면 출발
     const last = this.queue.at(-1) ?? this.dir;
     if (d === last || (d.x === -last.x && d.y === -last.y)) return; // 역방향 금지
     if (this.queue.length < 3) this.queue.push(d);
@@ -159,6 +163,8 @@ export default class Snake extends GameBase {
   update(dt) {
     if (this.banner && (this.banner.t -= dt) <= 0) this.banner = null;
     if (this.waitT > 0) { this.waitT -= dt; this.timer = 0; return; } // 스테이지 시작 전 잠깐 멈춤
+    if (this.hold) { this.timer = 0; return; }
+    if (this.ghostT > 0 && (this.ghostT -= dt) <= 0) this.updateInfo();
     if (this.bonus && (this.bonus.t -= dt) <= 0) this.bonus = null;
     if (this.feast && (this.feast.t -= dt) <= 0) this.feast = null;
     if (this.item && (this.item.t -= dt) <= 0) this.item = null;
@@ -192,7 +198,7 @@ export default class Snake extends GameBase {
     const feastIdx = this.feast ? this.feast.items.findIndex(at) : -1;
     const grow = eatFood || feastIdx >= 0;
     const body = grow ? this.snake : this.snake.slice(0, -1); // 꼬리는 이번 턴에 빠짐
-    if ((out && !this.cfg.wrap) || body.some((s) => s.x === head.x && s.y === head.y) || this.rocks.some(at)) {
+    if ((out && !this.cfg.wrap) || (this.ghostT <= 0 && body.some((s) => s.x === head.x && s.y === head.y)) || this.rocks.some(at)) {
       this.shake(8);
       this.burst((this.snake[0].x + 0.5) * CELL, (this.snake[0].y + 0.5) * CELL, { color: '#4ade80', count: 24, speed: 180 });
       this.sound('hit');
@@ -225,7 +231,7 @@ export default class Snake extends GameBase {
       this.food = this.freeCell();
       if (!this.food) return this.gameOver('완벽한 클리어!');
       if (this.eaten % 5 === 0 && !this.bonus) { const c = this.freeCell(); if (c) this.bonus = { ...c, t: BONUS_TIME }; }
-      if (this.eaten % 7 === 3 && !this.item) { const c = this.freeCell(); if (c) this.item = { ...c, t: ITEM_TIME, kind: Math.random() < 0.5 ? 'ice' : 'cut' }; }
+      if (this.eaten % 7 === 3 && !this.item) { const c = this.freeCell(); if (c) this.item = { ...c, t: ITEM_TIME, kind: ['ice', 'cut', 'ghost'][randInt(3)] }; }
       if (this.cfg.rocks && !this.stageMode && this.eaten % 4 === 0) this.addRock();
       if (this.portals && this.eaten % 10 === 0) this.movePortals();
       // 먹이 폭풍: 15개마다 6초 동안 작은 먹이가 잔뜩 (클래식 모드)
@@ -252,13 +258,14 @@ export default class Snake extends GameBase {
     }
     if (at(this.item)) {
       if (this.item.kind === 'ice') { this.slowT = 6; this.floatText(cx, cy - 8, '천천히~', '#7dd3fc', 14); }
+      else if (this.item.kind === 'ghost') { this.ghostT = 5; this.floatText(cx, cy - 8, '유령! 몸 통과', '#c4b5fd', 14); }
       else {
         const cut = Math.min(3, this.snake.length - 3);
         for (let i = 0; i < cut; i++) this.snake.pop();
         this.addScore(cut * 15);
         this.floatText(cx, cy - 8, `싹둑! +${cut * 15}`, '#f9a8d4', 14);
       }
-      this.burst(cx, cy, { color: this.item.kind === 'ice' ? '#7dd3fc' : '#f9a8d4', count: 14, speed: 120 });
+      this.burst(cx, cy, { color: { ice: '#7dd3fc', ghost: '#c4b5fd' }[this.item.kind] ?? '#f9a8d4', count: 14, speed: 120 });
       this.sound('power');
       this.item = null;
     }
@@ -324,10 +331,19 @@ export default class Snake extends GameBase {
     if (this.bonus && !(this.bonus.t < 2 && Math.floor(this.bonus.t * 8) % 2 === 0)) this.drawStar(ctx, this.bonus, '#facc15', pulse);
     if (this.item && !(this.item.t < 2 && Math.floor(this.item.t * 8) % 2 === 0)) {
       ctx.font = `${Math.round(15 * pulse)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(this.item.kind === 'ice' ? '🧊' : '✂️', (this.item.x + 0.5) * CELL, (this.item.y + 0.5) * CELL + 1);
+      ctx.fillText({ ice: '🧊', ghost: '👻' }[this.item.kind] ?? '✂️', (this.item.x + 0.5) * CELL, (this.item.y + 0.5) * CELL + 1);
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
+    // 유령 상태: 반투명 (끝나기 1.5초 전부터 깜빡여 알림)
+    if (this.ghostT > 0) ctx.globalAlpha = this.ghostT < 1.5 && Math.floor(this.ghostT * 8) % 2 ? 0.85 : 0.45;
     this.drawSnake(ctx);
+    ctx.globalAlpha = 1;
+    if (this.hold && !this.banner && this.state === 'playing') {
+      ctx.fillStyle = 'rgba(10,14,20,.6)'; ctx.fillRect(0, H / 2 + 34, W, 34);
+      ctx.textAlign = 'center'; ctx.fillStyle = '#fde68a'; ctx.font = '800 14px system-ui, sans-serif';
+      ctx.fillText(this.touchMode ? '가고 싶은 방향으로 밀면 출발!' : '방향키를 누르면 출발!', W / 2, H / 2 + 56);
+      ctx.textAlign = 'start';
+    }
     if (this.banner) {
       ctx.globalAlpha = Math.min(1, this.banner.t / 0.3);
       ctx.fillStyle = 'rgba(10,14,20,.6)'; ctx.fillRect(0, H / 2 - 44, W, 76);

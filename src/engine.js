@@ -269,7 +269,16 @@ export class GameBase {
 
   // ---- 서브클래스용 유틸 ----
   isDown(action) { return this.keys.has(action); }
-  setScore(n) { if (n !== this.score) { this.score = n; this._renderHud(); } }
+  setScore(n) {
+    if (n === this.score) return;
+    this.score = n; this._renderHud();
+    // 플레이 도중 내 최고 기록을 넘는 순간 한 번 알려줌 (점수 기록 게임만)
+    if (this.state === 'playing' && !this._bestShown && !this.recordLower && this.best > 0 && n > this.best && this.recordValue === undefined) {
+      this._bestShown = true;
+      this.floatText(this.camera.x + this.width / 2, this.camera.y + this.height * 0.28, '🏆 신기록!', '#fde68a', Math.max(16, Math.round(this.width / 20)));
+      this.sound('levelup');
+    }
+  }
   addScore(n) { this.setScore(this.score + n); }
   setInfo(text) { if (this.$info.textContent !== text) this.$info.textContent = text; }
   sound(name) { sfx.play(name); }
@@ -363,6 +372,7 @@ export class GameBase {
   // ---- 외부(호스트 사이트)에서 쓰는 API ----
   start() {
     this.recordValue = undefined;
+    this._bestShown = false;
     this.setScore(0);
     this.time = 0;
     this.fx = [];

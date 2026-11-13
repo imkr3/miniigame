@@ -710,7 +710,7 @@ export default class Kart extends GameBase {
   }
 
   go() {
-    this.phase = 'race';
+    this.phase = 'race'; this.lastRank = null; this.rankFx = null;
     this.sound('levelup');
     this.msg = { text: 'GO!', t: 0.8, big: true };
     for (const r of this.racers) {
@@ -1732,6 +1732,34 @@ export default class Kart extends GameBase {
         t -= len; x += w;
       });
       shadowText(lvl ? TURBO_NAMES[lvl].replace('!', ' 준비') : '드리프트 중…', W - 16, gy - 8, '800 12px system-ui, sans-serif', lvl ? hex(SPARK_COLORS[lvl]) : '#fff', 'right');
+    }
+    // 날아오는 공격 경고: 나를 쫓는 추적 로켓·냉동탄, 뒤에서 다가오는 회오리 → 아래쪽에 깜빡이는 표시 + 남은 거리
+    if (this.phase === 'race' && !p.finished) {
+      let warn = null;
+      for (const o of this.objs) {
+        const chase = (o.type === 'homing' || o.type === 'freeze') && o.target === p;
+        const d = Math.hypot(o.x - p.x, o.z - p.z);
+        const behind = (o.x - p.x) * Math.sin(p.h) + (o.z - p.z) * Math.cos(p.h) < 0;
+        if ((chase && d < 90) || (o.type === 'tornado' && o.owner !== p && behind && d < 40)) { if (!warn || d < warn.d) warn = { d, icon: o.type === 'tornado' ? '🌪️' : o.type === 'freeze' ? '❄️' : '🚀', max: chase ? 90 : 40 }; }
+      }
+      if (warn) {
+        if (!this.warnOn) this.sound('tick');
+        if (Math.floor(performance.now() / 140) % 2) {
+          const wx = W / 2, wy = H - 62;
+          ctx.fillStyle = 'rgba(220,38,38,.85)'; ctx.beginPath(); ctx.roundRect(wx - 58, wy - 16, 116, 26, 13); ctx.fill();
+          shadowText(`⚠ ${warn.icon} ${Math.round(warn.d)}m`, wx, wy + 3, '900 14px system-ui, sans-serif', '#fff', 'center');
+        }
+        if (p.item === 'shield' || p.item === 'spring') shadowText(p.item === 'shield' ? '방어막을 쓰세요!' : '스프링으로 피하세요!', W / 2, H - 28, '800 11px system-ui, sans-serif', '#fde68a', 'center');
+      }
+      this.warnOn = !!warn;
+      // 순위가 바뀌면 잠깐 알림
+      if (this.lastRank && p.rank !== this.lastRank && this.raceT > 3) this.rankFx = { up: p.rank < this.lastRank, t: 1.1, rank: p.rank };
+      this.lastRank = p.rank;
+      if (this.rankFx && (this.rankFx.t -= 1 / 60) > 0) {
+        ctx.globalAlpha = Math.min(1, this.rankFx.t * 2);
+        shadowText(`${this.rankFx.up ? '▲' : '▼'} ${this.rankFx.rank}위`, 78, 96 - (this.rankFx.up ? (1.1 - this.rankFx.t) * 14 : -(1.1 - this.rankFx.t) * 14), '900 16px system-ui, sans-serif', this.rankFx.up ? '#86efac' : '#fca5a5', 'center');
+        ctx.globalAlpha = 1;
+      }
     }
     if (this.smokeT > 0) { // 연막: 화면이 뿌옇게
       const a = Math.min(1, this.smokeT / 0.6) * 0.75;

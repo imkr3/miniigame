@@ -568,6 +568,12 @@ export default class Breakout extends GameBase {
 
     const now = performance.now() / 1000;
     for (const k of this.bricks ?? []) this.drawBrick(ctx, k, now);
+    // 마지막 남은 벽돌 3개 이하: 테두리가 깜빡여 어디 남았는지 알려줌
+    const left = (this.bricks ?? []).filter((k) => k.kind !== 'metal');
+    if (left.length && left.length <= 3 && !this.boss) {
+      ctx.strokeStyle = `rgba(253,230,138,${0.45 + Math.sin(now * 8) * 0.4})`; ctx.lineWidth = 2;
+      for (const k of left) { ctx.beginPath(); ctx.roundRect(k.x - 3, k.y - 3, k.w + 6, k.h + 6, 5); ctx.stroke(); }
+    }
     // 움직이는 줄 표시
     for (const m of this.movers ?? []) {
       const any = this.bricks.find((b) => b.row === m.row);

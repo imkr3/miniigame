@@ -93,6 +93,7 @@ export default class Maze extends GameBase {
   static pad = { left: 'dpad', buttons: [{ action: 'action', label: '대시', primary: true }] };
   static actionLabels = { action: '대시 (8초마다)' };
   static settings = [
+    { id: 'difficulty', label: '난이도', type: 'select', default: 'normal', options: [['easy', '쉬움 (목숨 5 · 느린 추격자)'], ['normal', '보통'], ['hard', '어려움 (빠른 추격자 · 짧은 파워)']], tip: '보통이 아니면 기록이 따로 저장돼요. 새 게임부터 적용' },
     { id: 'speed', label: '게임 속도', type: 'select', default: 'normal',
       options: [['slow', '느림'], ['normal', '보통'], ['fast', '빠름']], tip: '다음 판(또는 목숨을 잃은 뒤)부터 적용' },
   ];
@@ -102,7 +103,10 @@ export default class Maze extends GameBase {
   }
 
   init() {
-    this.lives = 3;
+    // 난이도: 추격자 속도 배율 · 파워 점 지속 시간 보정 · 목숨
+    this.diff = { easy: { chase: 0.85, fright: 2, lives: 5 }, hard: { chase: 1.12, fright: -1.5, lives: 3 } }[this.cfg.difficulty] ?? { chase: 1, fright: 0, lives: 3 };
+    this.lives = this.diff.lives;
+    this.setRecord(this.cfg.difficulty && this.cfg.difficulty !== 'normal' ? `maze-${this.cfg.difficulty}` : 'maze');
     this.dashT = 0; this.dashCd = 0;
     this.round = 1;
     this.nextLife = EXTRA_LIFE;
@@ -149,7 +153,7 @@ export default class Maze extends GameBase {
       return out;
     };
     const [p] = find('P');
-    const speedUp = Math.min(1.2, 1 + (this.round - 1) * 0.04); // 최고 속도도 플레이어(4.3)보다 살짝 느리게
+    const speedUp = Math.min(1.2, 1 + (this.round - 1) * 0.04) * this.diff.chase; // 최고 속도도 플레이어(4.3)보다 살짝 느리게
     const k = SPEEDS[this.cfg.speed] ?? 1;
     this.player = { ...p, dir: STOP, want: STOP, t: 0, speed: 4.3 * k };
     this.chasers = find('C').map((c, i) => ({
@@ -199,7 +203,7 @@ export default class Maze extends GameBase {
 
   /** 터널: 가로로 벗어나면 반대편 칸 */
   open(x, y) { return y >= 0 && y < ROWS && this.map[y][(x % COLS + COLS) % COLS] !== '#'; }
-  get frightTime() { return Math.max(3, FRIGHT_TIME - (this.round - 1) * 0.5); }
+  get frightTime() { return Math.max(2, FRIGHT_TIME + this.diff.fright - (this.round - 1) * 0.5); }
   get scatter() { return this.modeT % (SCATTER + CHASE) < SCATTER; }
 
   onAction(action) {
