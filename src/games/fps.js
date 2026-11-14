@@ -151,7 +151,10 @@ export default class Fps extends GameBase {
   onResize(w, h) {
     if (!this.renderer) return;
     const q = { low: 1, normal: 1.5, high: 2 }[this.cfg?.quality ?? 'normal'] ?? 1.5;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q));
+    this.maxRatio = Math.min(window.devicePixelRatio || 1, q);
+    this.ratio = Math.min(this.ratio ?? this.maxRatio, this.maxRatio);
+    this.viewW = w; this.viewH = h;
+    this.renderer.setPixelRatio(this.ratio);
     this.renderer.setSize(w, h, false);
     this.cam.aspect = this.view.camera.aspect = w / h;
     this.cam.updateProjectionMatrix(); this.view.camera.updateProjectionMatrix();
@@ -956,7 +959,22 @@ export default class Fps extends GameBase {
         r.render(this.view.scene, this.view.camera);
       }
     }
+    if (!idle && !menu) this.adaptResolution();
     if (!menu) this.drawHud(ctx);
+  }
+  /** 느린 기기: 프레임이 밀리면 해상도를 낮추고, 그래도 느리면 그림자를 끔. 여유가 생기면 해상도를 다시 올림 */
+  adaptResolution() {
+    const now = performance.now(), dt = now - (this.lastRender ?? now);
+    this.lastRender = now;
+    if (!dt || dt > 250) return; // 탭 전환 등 큰 공백은 무시
+    this.frameAvg = (this.frameAvg ?? 16) * 0.95 + dt * 0.05;
+    if ((this.adaptT = (this.adaptT ?? 0) + dt) < 2000) return;
+    this.adaptT = 0;
+    let r = this.ratio;
+    if (this.frameAvg > 24 && r > 0.6) r = Math.max(0.6, r - 0.2);
+    else if (this.frameAvg > 30 && this.sun.castShadow) { this.sun.castShadow = false; return; }
+    else if (this.frameAvg < 15 && r < this.maxRatio) r = Math.min(this.maxRatio, r + 0.1);
+    if (r !== this.ratio) { this.ratio = r; this.renderer.setPixelRatio(r); this.renderer.setSize(this.viewW, this.viewH, false); }
   }
 
   project(x, y, z) {

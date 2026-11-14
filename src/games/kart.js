@@ -1619,6 +1619,7 @@ export default class Kart extends GameBase {
     this.adaptT = 0;
     let r = this.ratio;
     if (this.frameAvg > 24 && r > 0.6) r = Math.max(0.6, r - 0.2);
+    else if (this.frameAvg > 30 && this.shadowsOn) { this.shadowsOn = false; this.sun.castShadow = false; return; } // 해상도를 다 낮춰도 느리면 그림자를 끔
     else if (this.frameAvg < 15 && r < this.maxRatio) r = Math.min(this.maxRatio, r + 0.1);
     if (r !== this.ratio) { this.ratio = r; this.renderer.setPixelRatio(r); this.renderer.setSize(this.viewW, this.viewH, false); }
   }
