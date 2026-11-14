@@ -733,7 +733,7 @@ export class GameBase {
     this.$screen.style.width = `${w}px`;
     this.$screen.style.height = `${h}px`;
     // 표시 크기에 맞춰 캔버스 해상도도 조절해서 항상 선명하게
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); // 3배 화면도 2배까지만 (그릴 픽셀이 절반 이하로 줄고 차이는 거의 안 보임)
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this._renderScale = (w * dpr) / this.width;
@@ -919,6 +919,11 @@ export class GameBase {
     if (!this._booted) { this._booted = true; this.init(); }
     if (this.state === 'playing') { this.time += dt; this.update(dt); }
     if (this.state !== 'paused') this._updateFx(dt);
+    // 쉬는 화면(시작·일시정지·결과)은 3프레임에 한 번만, 화면 밖으로 스크롤돼 있으면 아예 안 그림 (배터리·발열 절약)
+    if (this.state !== 'playing') {
+      this._idleN = ((this._idleN ?? 0) + 1) % 3;
+      if (this.offscreen || this._idleN) { this._raf = requestAnimationFrame(this._frame); return; }
+    }
 
     const ctx = this.ctx;
     ctx.setTransform(this._renderScale || 1, 0, 0, this._renderScale || 1, 0, 0);
