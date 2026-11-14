@@ -24,9 +24,9 @@ export const ENEMIES = {
   crystalBug: { name: '수정 벌레', w: 24, h: 14, hp: 4, speed: 34, score: 25, color: '#22d3ee' },
   robot:      { name: '경비 로봇', w: 22, h: 28, hp: 6, speed: 40, score: 30, color: '#64748b' },
   // 보스
-  golem:      { name: '바위 골렘', w: 52, h: 60, hp: 70, score: 300, color: '#78716c', boss: true },
-  slimeKing:  { name: '슬라임 왕', w: 64, h: 50, hp: 80, score: 300, color: '#22c55e', boss: true },
-  mech:       { name: '강철 비행선', w: 84, h: 40, hp: 85, score: 300, color: '#475569', boss: true, fly: true },
+  golem:      { name: '바위 골렘', w: 52, h: 60, hp: 66, score: 300, color: '#78716c', boss: true },
+  slimeKing:  { name: '슬라임 왕', w: 64, h: 50, hp: 74, score: 300, color: '#22c55e', boss: true },
+  mech:       { name: '강철 비행선', w: 84, h: 40, hp: 64, score: 300, color: '#475569', boss: true, fly: true },
 };
 
 const patrol = (g, e) => {
@@ -313,9 +313,9 @@ export const AI = {
         }
         if (b.t > 1.1) { b.state = 'recover'; b.t = 0; }
         break;
-      case 'charge': if (b.t < 0.6) { b.vx = 0; b.dir = Math.sign(dx) || 1; } else b.vx = b.dir * 380 * sp; break;
-      case 'stun': b.vx = 0; if (b.t > 1.1) { b.state = 'walk'; b.t = 0; } break;
-      default: b.vx *= 0.9; if (b.t > 0.7 / sp) { b.state = 'walk'; b.t = 0; }
+      case 'charge': if (b.t < 0.7) { b.vx = 0; b.dir = Math.sign(dx) || 1; } else b.vx = b.dir * 340 * sp; break;
+      case 'stun': b.vx = 0; if (b.t > 1.8) { b.state = 'walk'; b.t = 0; } break; // 벽에 박거나 그로기: 공격 기회
+      default: b.vx *= 0.9; if (b.t > 1.05 / sp) { b.state = 'walk'; b.t = 0; } // 큰 기술 뒤 숨 고르기
     }
     if (g.moveX(b, b.vx * dt) && b.state === 'charge') {
       b.state = 'stun'; b.t = 0; g.shake(8, 0.3); g.sound('hit');
@@ -366,7 +366,8 @@ export const AI = {
         }
         if (b.t > 1.2) { b.state = 'recover'; b.t = 0; }
         break;
-      default: b.vx *= 0.85; if (b.t > 0.7 / sp) next();
+      case 'stun': b.vx = 0; if (b.t > 1.8) next(); break; // 그로기: 공격 기회
+      default: b.vx *= 0.85; if (b.t > 1.05 / sp) next();
     }
     if (g.moveX(b, b.vx * dt)) b.vx = 0;
     g.moveY(b, b.vy * dt, false);
@@ -387,8 +388,8 @@ export const AI = {
       case 'patrol':
         fly(120 * sp);
         b.y = hoverY + Math.sin(b.t * 2) * 8;
-        if (b.t > 2.2) {
-          if (b.cycles >= 2) { b.state = 'descend'; b.cycles = 0; }
+        if (b.t > 1.9) {
+          if (b.cycles >= (b.phase2 ? 2 : 1)) { b.state = 'descend'; b.cycles = 0; } // 공격 한 번(분노하면 두 번) 뒤 내려와 쉼
           else { b.state = Math.random() < 0.5 ? 'bombs' : 'laser'; b.cycles++; }
           b.t = 0; b.n = 0;
         }
@@ -417,7 +418,7 @@ export const AI = {
         b.y = Math.min(groundY, b.y + 150 * dt);
         if (b.y >= groundY) { b.state = 'grounded'; b.t = 0; g.shake(6, 0.25); g.sound('drop'); }
         break;
-      case 'grounded': if (b.t > (b.phase2 ? 1.9 : 2.5)) { b.state = 'ascend'; b.t = 0; } break;
+      case 'grounded': if (b.t > (b.phase2 ? 2.8 : 3.2)) { b.state = 'ascend'; b.t = 0; } break;
       case 'ascend': b.y = Math.max(hoverY, b.y - 120 * dt); if (b.y <= hoverY) { b.state = 'patrol'; b.t = 0; } break;
     }
     b.vx = 0;
@@ -697,6 +698,11 @@ export function drawEnemy(g, ctx, e) {
     }
   }
   ctx.restore();
+  if (e.boss && (e.state === 'stun' || (e.type === 'mech' && e.state === 'grounded'))) { // 쓰러진 보스 머리 위 별
+    ctx.font = '14px system-ui'; ctx.textAlign = 'center';
+    for (let i = 0; i < 3; i++) { const a = e.t * 5 + i * 2.1; ctx.fillText('⭐', e.x + e.w / 2 + Math.cos(a) * 16, e.y - 6 + Math.sin(a) * 4); }
+    ctx.textAlign = 'start';
+  }
   if (!e.boss && e.hp < e.maxHp && !e.hidden) {
     ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(e.x, e.y - 7, e.w, 3);
     ctx.fillStyle = '#4ade80'; ctx.fillRect(e.x, e.y - 7, e.w * Math.max(0, e.hp / e.maxHp), 3);

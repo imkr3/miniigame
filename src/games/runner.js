@@ -16,9 +16,9 @@ const COYOTE = 0.1, JUMP_BUFFER = 0.13;
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 const WEAPONS = {
-  sword:   { name: '검', icon: '🗡️', dmg: 2, cd: 0.3, kind: 'melee', reach: 34, height: 30, kb: 150, color: '#e2e8f0' },
+  sword:   { name: '검', icon: '🗡️', dmg: 2, cd: 0.3, kind: 'melee', reach: 46, height: 36, kb: 150, color: '#e2e8f0' },
   blaster: { name: '블래스터', icon: '🔫', dmg: 1, cd: 0.2, kind: 'shot', speed: 480, life: 0.75, kb: 60, color: '#67e8f9' },
-  hammer:  { name: '망치', icon: '🔨', dmg: 4, cd: 0.62, kind: 'melee', reach: 50, height: 46, kb: 320, color: '#fbbf24', heavy: true },
+  hammer:  { name: '망치', icon: '🔨', dmg: 4, cd: 0.62, kind: 'melee', reach: 62, height: 50, kb: 320, color: '#fbbf24', heavy: true },
 };
 
 
@@ -332,7 +332,18 @@ export default class Runner extends GameBase {
     let d = dmg * (opts.env ? 1 : this.S.dmgMul * (this.S.fury && this.p.hp <= 2 ? 2 : 1));
     const crit = !opts.env && Math.random() < this.S.crit;
     if (crit) d *= 2;
+    // 보스: 근접 공격은 1.3배 (가까이 붙는 위험에 대한 보상). 맞을수록 그로기 게이지가 차서 가득 차면 잠깐 쓰러짐
+    if (e.boss && opts.melee) d *= 1.3;
     d = Math.round(d * 10) / 10;
+    // (쓰러져 있는 동안과 일어난 뒤 3.5초는 게이지가 차지 않음 → 계속 쓰러뜨려 가둘 수는 없음)
+    if (e.boss && !opts.env && e.state !== 'stun' && !(e.staggerCd > this.time)) {
+      e.stagger = (e.stagger ?? 0) + d * (opts.melee || opts.stomp ? 1 : 0.35);
+      if (e.stagger >= e.maxHp * 0.25 && e.state !== 'intro') {
+        e.staggerCd = this.time + 1.8 + 3.5;
+        if (e.type === 'mech') { if (e.state === 'grounded') { e.t -= 1.6; e.stagger = 0; this.floatText(e.x + e.w / 2, e.y - 14, '💫 그로기!', '#fde68a', 18); this.sound('bonus'); } }
+        else { e.stagger = 0; e.state = 'stun'; e.t = 0; e.vx = 0; this.floatText(e.x + e.w / 2, e.y - 14, '💫 그로기!', '#fde68a', 18); this.sound('bonus'); this.shake(5, 0.2); }
+      }
+    }
     e.hp -= d;
     e.flash = 0.1;
     if (!e.boss && !e.static) { e.kb = dirX * kb; if (!e.fly) e.vy = Math.min(e.vy, -120); }
@@ -635,8 +646,17 @@ export default class Runner extends GameBase {
       for (const e of this.enemies) {
         if (e.dead || this.slash.hit.has(e) || !overlap(box, e)) continue;
         this.slash.hit.add(e);
-        this.hitEnemy(e, this.slash.wp.dmg, this.slash.face, this.slash.wp.kb, { heavy: this.slash.wp.heavy });
+        this.hitEnemy(e, this.slash.wp.dmg, this.slash.face, this.slash.wp.kb, { heavy: this.slash.wp.heavy, melee: true });
         if (this.slash.wp.heavy) this.shake(4, 0.12);
+      }
+      // 근접 무기로 날아오는 돌·폭탄·탄환을 쳐낼 수 있음 (광선·충격파는 못 막음)
+      for (const sh of this.shots) {
+        if (sh.life <= 0 || !['arc', 'bomb', 'bullet'].includes(sh.kind)) continue;
+        const r = sh.r ?? 6, sb = sh.w ? sh : { x: sh.x - r, y: sh.y - r, w: r * 2, h: r * 2 };
+        if (!overlap(box, sb)) continue;
+        sh.life = 0;
+        this.burst(sh.x, sh.y, { color: '#fde68a', count: 8, speed: 140, life: 0.3 });
+        this.floatText(sh.x, sh.y - 8, '쳐냄!', '#fde68a', 11); this.sound('lock');
       }
       if (this.slash.t <= 0) this.slash = null;
     }
@@ -693,6 +713,10 @@ export default class Runner extends GameBase {
         }
       } else if (p.dashT > 0) {
         if (this.S.dashHit && !p.dashHits.has(e)) { p.dashHits.add(e); this.hitEnemy(e, 3, p.face, 200, { heavy: true }); }
+      } else if (e.boss && ['stun', 'recover', 'intro', 'grounded', 'summon'].includes(e.state)) {
+        // 보스가 쓰러졌거나 숨을 고르는 동안에는 닿아도 다치지 않고 옆으로 밀려나기만 함 (근접 공격 기회)
+        const side = p.x + p.w / 2 < e.x + e.w / 2 ? -1 : 1;
+        this.moveX(p, side * 160 * dt);
       } else this.hurtPlayer(1, e.x + e.w / 2);
     }
     this.enemies = this.enemies.filter((e) => !e.dead || e.boss);
@@ -994,6 +1018,10 @@ export default class Runner extends GameBase {
       roundRect(ctx, W / 2 - 148, 38, 296 * Math.max(0, b.hp / b.maxHp), 8, 4);
       ctx.fillStyle = '#fef3c7'; ctx.font = '800 12px system-ui, sans-serif'; ctx.textAlign = 'center';
       ctx.fillText(`${b.name}${b.phase2 ? ' (분노)' : ''}`, W / 2, 30); ctx.textAlign = 'start';
+      // 그로기 게이지 (근접 공격·밟기로 빨리 참)
+      const sg = Math.min(1, (b.stagger ?? 0) / (b.maxHp * 0.25));
+      ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(W / 2 - 148, 50, 296, 3);
+      ctx.fillStyle = '#fde047'; ctx.fillRect(W / 2 - 148, 50, 296 * sg, 3);
     }
     // 스테이지 배너
     if (this.banner) {
