@@ -343,7 +343,7 @@ export class GameBase {
   shake(amount = 6, time = 0.25) { if (this.cfg.shake) this._shake = { t: time, max: time, amount }; }
 
   /** @param {string} [stats] 게임오버 화면에 덧붙일 통계 문구 */
-  gameOver(title = '게임 오버', stats = '', { multi = false } = {}) {
+  gameOver(title = '게임 오버', stats = '', { multi = false, noScore = false } = {}) { // noScore: 점수·기록 목록 없이 결과만 (순위가 곧 결과인 게임)
     if (this.state === 'over') return;
     this.state = 'over';
     this.keys.clear();
@@ -351,10 +351,10 @@ export class GameBase {
     this._overAt = performance.now();
     // 멀티플레이 결과는 혼자 하기 기록(최고 점수·TOP 5)에 넣지 않음
     const value = this.recordValue ?? this.score, lower = this.recordLower, fmt = this.recordFmt;
-    const valid = value > 0;
+    const valid = value > 0 && !noScore;
     const isBest = !multi && valid && (lower ? !this.best || value < this.best : value > this.best);
     if (isBest) { this.best = value; storage.set(this.bestKey, this.best); }
-    const { top, rank } = valid && !multi ? pushTop(this.recordId, value, lower) : { top: multi ? [] : getTop(this.recordId), rank: -1 };
+    const { top, rank } = valid && !multi ? pushTop(this.recordId, value, lower) : { top: multi || noScore ? [] : getTop(this.recordId), rank: -1 };
     this._renderHud();
     this.sound('over');
     this.vibrate(120);
@@ -365,7 +365,7 @@ export class GameBase {
     }).join('')}</ol>` : '';
     const badge = isBest ? '<div class="mg-new">🏆 최고 기록!</div>'
       : rank >= 0 ? `<div class="mg-new">${rank + 1}위 기록!</div>` : '';
-    this._showOverlay(title, `<div class="mg-big">${esc(valid || !lower ? fmt(value) : '-')}</div>${badge}${stats ? `<p class="mg-stats">${esc(stats)}</p>` : ''}${list}`, multi ? 'multi-end' : 'restart');
+    this._showOverlay(title, `${noScore ? '' : `<div class="mg-big">${esc(valid || !lower ? fmt(value) : '-')}</div>`}${badge}${stats ? `<p class="mg-stats">${esc(stats)}</p>` : ''}${list}`, multi ? 'multi-end' : 'restart');
     this._emit('gameover', { score: this.score, best: this.best, newBest: isBest });
   }
 

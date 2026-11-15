@@ -1492,7 +1492,6 @@ export default class Kart extends GameBase {
     const p = this.player;
     this.results = this.order.map((r) => ({ name: `${r.ch.emoji} ${r.ch.name}`, time: r.finished ? fmt(r.finishTime) : '--:--', me: r.isPlayer }));
     const best = p.lapTimes.length ? Math.min(...p.lapTimes) : 0;
-    this.setScore(RANK_POINTS[p.rank - 1] + Math.max(0, Math.round(300 - this.raceT)));
     const stats = `${this.track.def.name} · 기록 ${p.finished ? fmt(p.finishTime) : '--'} · 베스트 랩 ${best ? fmt(best) : '--'}`;
     if (!this.multi && this.mode === 'tt') {
       this.setRecord(`kart-tt-${this.trackIdx}-${this.laps}`, { lower: true, fmt: (v) => fmt(v / 100) });
@@ -1519,15 +1518,13 @@ export default class Kart extends GameBase {
         this.phase = 'gpwait';
         this.gpWaitAt = performance.now();
         this.msg = null;
-        this.setScore(gp.roster.find((e) => e.id === 'me').pts * 100);
         return;
       }
       const table = [...gp.roster].sort((a, b) => b.pts - a.pts);
       const me = table.findIndex((e) => e.id === 'me') + 1, mine = table[me - 1].pts;
       this.setRecord('kart-gp');
-      this.setScore(mine * 100 + Math.max(0, 6 - me) * 200);
       return this.gameOver(me === 1 ? '🏆 그랑프리 우승!' : me <= 3 ? `🏅 그랑프리 ${me}위` : `그랑프리 ${me}위`,
-        `총 ${mine}점 · 경기별 순위 ${gp.history.join(' · ')} · 1위 ${CHARACTERS[table[0].ci].emoji} ${table[0].pts}점`);
+        `총 ${mine}점 · 경기별 순위 ${gp.history.join(' · ')} · 1위 ${CHARACTERS[table[0].ci].emoji} ${table[0].pts}점`, { noScore: true });
     }
     if (this.multi) {
       const humans = this.order.filter((r) => r.human);
@@ -1535,9 +1532,9 @@ export default class Kart extends GameBase {
       this.sendState(); // 마지막 상태 전송 (다른 사람이 내 골인을 기다리지 않게)
       if (this.multi.net.isHost) this.multi.net.end();
       this.leaveMulti();
-      return this.gameOver(myPlace === 1 ? '🏆 우승!' : `${p.rank}위 골인`, `${stats} · 사람 중 ${myPlace}/${humans.length}등`, { multi: true });
+      return this.gameOver(myPlace === 1 ? '🏆 우승!' : `${p.rank}위 골인`, `${stats} · 사람 중 ${myPlace}/${humans.length}등`, { multi: true, noScore: true });
     }
-    this.gameOver(p.rank === 1 ? '🏆 우승!' : `${p.rank}위 골인`, stats);
+    this.gameOver(p.rank === 1 ? '🏆 우승!' : `${p.rank}위 골인`, stats, { noScore: true });
   }
 
   // ---------------- 카메라 ----------------
