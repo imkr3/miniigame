@@ -47,6 +47,7 @@ function noiseHit({ vol = 0.3, pan = 0, freq = 1200, q = 0.7, dur = 0.12, type =
 }
 const GUN_SND = {
   ar: { vol: 0.3, freq: 1500, dur: 0.11, thump: 0.22 }, smg: { vol: 0.24, freq: 2200, dur: 0.08, thump: 0.14, thumpF: 180 }, shotgun: { vol: 0.45, freq: 700, dur: 0.26, thump: 0.4, thumpF: 110 },
+  dmr: { vol: 0.42, freq: 1200, dur: 0.2, thump: 0.34, thumpF: 120 }, launcher: { vol: 0.3, freq: 400, dur: 0.16, type: 'lowpass', thump: 0.4, thumpF: 160 },
   sniper: { vol: 0.5, freq: 900, dur: 0.38, thump: 0.45, thumpF: 100 }, lmg: { vol: 0.33, freq: 1100, dur: 0.13, thump: 0.28, thumpF: 120 }, pistol: { vol: 0.26, freq: 1900, dur: 0.1, thump: 0.18, thumpF: 170 },
 };
 
@@ -342,7 +343,11 @@ export default class Fps extends GameBase {
     }
     if (this.phase !== 'play' || repeat) return;
     const p = this.player;
-    if (!p.alive) { const k = ['w1', 'w2', 'w3', 'w4', 'w5'].indexOf(action); if (k >= 0) { this.sel.weapon = k; this.sound('move'); } return; }
+    if (!p.alive) { // 부활 대기 중: 다음 주무기 고르기
+      const k = ['w1', 'w2', 'w3', 'w4', 'w5'].indexOf(action);
+      if (k >= 0) { this.sel.weapon = k; this.sound('move'); } else if (action === 'right' || action === 'last') this.nextPrimary(1); else if (action === 'left') this.nextPrimary(-1);
+      return;
+    }
     switch (action) {
       case 'action': this.jumpQ = true; break;
       case 'reload': this.startReload(p); break;
@@ -406,7 +411,8 @@ export default class Fps extends GameBase {
     a.nades = a.isPlayer ? 2 : 1; a.cur = 0; a.reloadT = 0; a.fireCd = 0.3; a.switchT = 0; a.bloom = 0;
     setSoldierGun(a.model, a.primary);
   }
-  randomPrimary() { const r = Math.random(); return r < 0.36 ? 'ar' : r < 0.6 ? 'smg' : r < 0.72 ? 'shotgun' : r < 0.86 ? 'sniper' : 'lmg'; }
+  randomPrimary() { return this.pickPrimary(Math.random()); }
+  pickPrimary(r) { return r < 0.3 ? 'ar' : r < 0.5 ? 'smg' : r < 0.6 ? 'shotgun' : r < 0.72 ? 'sniper' : r < 0.84 ? 'lmg' : r < 0.94 ? 'dmr' : 'launcher'; }
 
   startMatch() {
     const mp = this.multi;
@@ -464,7 +470,7 @@ export default class Fps extends GameBase {
     }
     this.view.setWeapon(this.player.weapons[0].def.id);
   }
-  seededPrimary(i) { const r = ((this.multi?.seed ?? 1) * (i + 3) * 2654435761 >>> 0) / 4294967296; return r < 0.36 ? 'ar' : r < 0.6 ? 'smg' : r < 0.72 ? 'shotgun' : r < 0.86 ? 'sniper' : 'lmg'; }
+  seededPrimary(i) { return this.pickPrimary(((this.multi?.seed ?? 1) * (i + 3) * 2654435761 >>> 0) / 4294967296); }
 
   /** 부활 위치: 팀 구역(개인전은 적에게서 가장 먼 곳) 중 비어 있는 자리 */
   spawnPoint(a) {
@@ -541,9 +547,16 @@ export default class Fps extends GameBase {
     this.aimOnEnemy = false;
     this.aimOnEnemy = !!this.aimRay(p);
     const def = this.curDef(p);
-    const wantFire = this.mouse.fire || this.isDown('fire') || tc.fire || (auto && this.aimOnEnemy && !def.throw && (!def.melee || this.aimDist < def.reach));
-    if (wantFire && !(p.sprinting && !def.melee)) {
-      if (def.auto || def.melee || !this.fireHeld || (auto && this.aimOnEnemy)) this.tryFire(p);
+    // 자동 사격: 조준선을 적에게 0.3초 맞추고 있어야 쏘기 시작하고, 무기의 유효 사거리 안에서만, 연사는 직접 쏠 때의 70%, 퍼짐은 더 큼
+    this.autoT = this.aimOnEnemy ? (this.autoT ?? 0) + dt : 0;
+    const manual = this.mouse.fire || this.isDown('fire') || tc.fire;
+    const autoShot = !manual && auto && this.autoT > 0.3 && !def.throw && !def.launcher && (def.melee ? this.aimDist < def.reach : this.aimDist < (def.range?.[1] ?? 50));
+    if ((manual || autoShot) && !(p.sprinting && !def.melee)) {
+      if (def.auto || def.melee || !this.fireHeld || autoShot) {
+        this.autoPenalty = autoShot;
+        if (this.tryFire(p) && autoShot && !def.melee) p.fireCd = Math.max(p.fireCd / 0.7, def.auto ? 0 : 0.35);
+        this.autoPenalty = false;
+      }
       this.fireHeld = true;
     } else this.fireHeld = false;
     if (p.meleeBackT > 0 && (p.meleeBackT -= dt) <= 0) { p.cur = p.meleeBack; this.view.setWeapon(this.curDef(p).id); }
@@ -603,7 +616,7 @@ export default class Fps extends GameBase {
     if (a.reloadT > 0) return false;
     if (w.mag <= 0) { if (a.isPlayer && !this.fireHeld) this.sound('tick'); this.startReload(a); return false; }
     w.mag--; a.fireCd = 60 / def.rpm; a.flashT = 0.05; a.protectT = 0;
-    this.shoot(a, def);
+    if (def.launcher) this.launch(a, def); else this.shoot(a, def);
     if (w.mag === 0 && a.isPlayer) this.startReload(a);
     return true;
   }
@@ -612,12 +625,13 @@ export default class Fps extends GameBase {
     const sp = Math.hypot(a.vx, a.vz) / WALK;
     const spread = def.spread[0] + (def.spread[1] - def.spread[0]) * ads + a.bloom + (1 - ads * 0.6) * sp * 0.018 + (a.grounded ? 0 : 0.03) - (a.crouch ? 0.003 : 0);
     const n = def.pellets ?? 1, ends = [];
+    const sprd = spread * (P && this.autoPenalty ? 1.6 : 1) + (P && this.autoPenalty ? 0.006 : 0);
     // 총구 위치 (예광탄 시작점)
     const f = this.dirOf(a.yaw, a.pitch), rx = Math.cos(a.yaw), rz = -Math.sin(a.yaw), side = P ? 0.14 * (1 - ads) : 0.16;
     const mx = o[0] + f[0] * 0.7 + rx * side, my = o[1] + f[1] * 0.7 - (P ? 0.1 : 0.22), mz = o[2] + f[2] * 0.7 + rz * side;
     let hitAny = false;
     for (let k = 0; k < n; k++) {
-      const yaw = a.yaw + (Math.random() + Math.random() - 1) * Math.max(0.0002, spread), pitch = a.pitch + (Math.random() + Math.random() - 1) * Math.max(0.0002, spread);
+      const yaw = a.yaw + (Math.random() + Math.random() - 1) * Math.max(0.0002, sprd), pitch = a.pitch + (Math.random() + Math.random() - 1) * Math.max(0.0002, sprd);
       const d = this.dirOf(yaw, pitch);
       const wall = this.world.ray(o[0], o[1], o[2], d[0], d[1], d[2], 220), wt = wall ? wall.t : 220;
       const h = this.hitActor(a, o, d, wt);
@@ -673,6 +687,15 @@ export default class Fps extends GameBase {
     this.damage(best, back ? 250 : def.dmg * (a.zombie && this.wave ? 1 + (this.wave - 1) * 0.04 : 1), a, def.id, false);
     if (this.multi && !a.remote) this.multi.net.relay({ k: 'ml', id: a.id });
   }
+  /** 유탄 발사: 빠르게 포물선으로 날아가 짧은 시간 뒤 폭발 */
+  launch(a, def) {
+    const o = this.eyeOf(a), d = this.dirOf(a.yaw, a.pitch + 0.05), v = 34;
+    const g = { x: o[0] + d[0] * 0.7, y: o[1] - 0.12, z: o[2] + d[2] * 0.7, vx: d[0] * v, vy: d[1] * v, vz: d[2] * v, t: def.fuse, owner: a, local: !a.remote, def };
+    this.addGrenade(g);
+    this.gunSound(def.id, a); alertBots(this, a.x, a.z, a.team, 30); a.seenT = this.time;
+    if (a.isPlayer) { this.stats.shots++; a.pitch += def.recoil[0]; this.recoil += def.recoil[0] * 0.85; this.view.fire(false); this.shakeT = Math.max(this.shakeT, 0.12); }
+    if (this.multi && !a.remote) this.multi.net.relay({ k: 'gr', id: a.id, p: [r2(g.x), r2(g.y), r2(g.z)], v: [r2(g.vx), r2(g.vy), r2(g.vz)], f: def.fuse });
+  }
   throwGrenade(a, yaw, pitch) {
     if (a.nades <= 0) return;
     a.nades--; a.protectT = 0;
@@ -704,7 +727,7 @@ export default class Fps extends GameBase {
   }
   explode(g) {
     this.dyn.remove(g.mesh);
-    const def = WEAPONS.grenade, p = this.player;
+    const def = g.def ?? WEAPONS.grenade, p = this.player;
     this.effects.explosion(g.x, g.y, g.z, def.radius);
     this.soundAt(g.x, g.z, { vol: 0.7, freq: 350, dur: 0.7, type: 'lowpass', thump: 0.6, thumpF: 90 });
     const dp = Math.hypot(p.x - g.x, p.z - g.z);
@@ -716,7 +739,7 @@ export default class Fps extends GameBase {
       const d = Math.hypot(e.x - g.x, e.y + 0.9 - g.y, e.z - g.z);
       if (d > def.radius) continue;
       if (!this.world.los(g.x, g.y + 0.25, g.z, e.x, e.y + 1.0 * e.scale, e.z) && !this.world.los(g.x, g.y + 0.25, g.z, e.x, e.y + 1.6 * e.scale, e.z)) continue;
-      this.damage(e, def.dmg * Math.pow(1 - d / def.radius, 0.8) * (e === g.owner ? 0.6 : 1) * (g.owner.ai ? this.diff.dmg : 1), g.owner, 'grenade', false);
+      this.damage(e, def.dmg * Math.pow(1 - d / def.radius, 0.8) * (e === g.owner ? 0.6 : 1) * (g.owner.ai ? this.diff.dmg : 1), g.owner, def.id, false);
     }
   }
   soundAt(x, z, s) {
@@ -1101,7 +1124,7 @@ export default class Fps extends GameBase {
       ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, H * 0.56, W, 62);
       text(p.killer && p.killer !== p ? `${p.killer.name} 에게 처치당함 (${WEAPONS[p.killWeapon]?.name ?? ''})` : '쓰러졌습니다', W / 2, H * 0.56 + 18, F(13), '#fca5a5', 'center');
       text(`${Math.max(0, p.respawnT).toFixed(1)}초 후 부활`, W / 2, H * 0.56 + 34, F(11, 700), '#fff', 'center');
-      text(`다음 주무기: ${WEAPONS[PRIMARIES[this.sel.weapon]].name}  (${this.touchMode ? '무기 버튼으로 변경' : '1~5 키로 변경'})`, W / 2, H * 0.56 + 50, F(9, 700), '#fde68a', 'center');
+      text(`다음 주무기: ${WEAPONS[PRIMARIES[this.sel.weapon]].name}  (${this.touchMode ? '무기 버튼으로 변경' : 'A/D 키로 변경'})`, W / 2, H * 0.56 + 50, F(9, 700), '#fde68a', 'center');
     }
     if (this.matchOver && this.endT > 0) text(this.mode.zombie ? '전사...' : '경기 종료!', W / 2, H * 0.42, F(30), '#fde68a', 'center');
     if (!this.touchMode && !this.isLocked() && this.state === 'playing' && !this.matchOver) text('화면을 클릭하면 마우스로 조준합니다 (방향키로도 조준 가능)', W / 2, H - 46, F(10, 700), '#fde68a', 'center');
@@ -1232,7 +1255,7 @@ export default class Fps extends GameBase {
         this.gunSound(d.w, a);
         break;
       }
-      case 'gr': { const a = this.byId(d.id); if (a) this.addGrenade({ x: d.p[0], y: d.p[1], z: d.p[2], vx: d.v[0], vy: d.v[1], vz: d.v[2], t: WEAPONS.grenade.fuse, owner: a, local: false }); break; }
+      case 'gr': { const a = this.byId(d.id); if (a) this.addGrenade({ x: d.p[0], y: d.p[1], z: d.p[2], vx: d.v[0], vy: d.v[1], vz: d.v[2], t: d.f ?? WEAPONS.grenade.fuse, owner: a, local: false }); break; }
       case 'hit': { // 다른 화면에서 내(또는 내가 맡은 봇)가 맞음
         const v = this.byId(d.to), by = this.byId(d.by);
         if (v && by && !v.remote) this.damage(v, d.d, by, d.w, !!d.h);

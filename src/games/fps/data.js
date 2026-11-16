@@ -10,13 +10,15 @@ export const WEAPONS = {
   shotgun: { id: 'shotgun', name: '산탄총', icon: 'SG', slot: 0, dmg: 14, pellets: 8, head: 1.3, rpm: 78, mag: 6, reserve: 30, reload: 2.5, auto: false, spread: [0.075, 0.055], bloom: 0, bloomMax: 0.08, recoil: [0.06, 0.02], range: [7, 26, 0.2], speed: 1.02, zoom: 1.15, desc: '가까우면 한 방' },
   sniper: { id: 'sniper', name: '저격소총', icon: 'SR', slot: 0, dmg: 92, head: 2.5, rpm: 44, mag: 5, reserve: 25, reload: 2.8, auto: false, spread: [0.07, 0.0004], bloom: 0, bloomMax: 0.08, recoil: [0.07, 0.012], range: [90, 160, 0.9], speed: 0.92, zoom: 4.2, scope: true, desc: '조준경 · 몸통 한 방 직전, 머리는 즉사' },
   lmg: { id: 'lmg', name: '경기관총', icon: 'MG', slot: 0, dmg: 25, head: 1.6, rpm: 720, mag: 80, reserve: 160, reload: 3.6, auto: true, spread: [0.024, 0.008], bloom: 0.0035, bloomMax: 0.05, recoil: [0.011, 0.009], range: [30, 75, 0.6], speed: 0.86, zoom: 1.35, desc: '탄창 80발, 무겁고 재장전이 김' },
+  dmr: { id: 'dmr', name: '지정사수 소총', icon: 'DMR', slot: 0, dmg: 46, head: 2.2, rpm: 280, mag: 12, reserve: 60, reload: 2.3, auto: false, spread: [0.02, 0.0012], bloom: 0.01, bloomMax: 0.05, recoil: [0.03, 0.008], range: [55, 110, 0.75], speed: 0.98, zoom: 2.4, desc: '반자동 · 중장거리 세 발, 머리는 한 발' },
+  launcher: { id: 'launcher', name: '유탄 발사기', icon: 'GL', slot: 0, launcher: true, dmg: 110, radius: 5.5, fuse: 1.5, head: 1, rpm: 60, mag: 4, reserve: 12, reload: 3, auto: false, spread: [0.01, 0.005], bloom: 0, bloomMax: 0.02, recoil: [0.05, 0.01], range: [40, 40, 1], speed: 0.94, zoom: 1.2, desc: '포물선으로 날아가 1.5초 뒤 폭발 · 엄폐물 뒤 공격' },
   pistol: { id: 'pistol', name: '권총', icon: 'HG', slot: 1, dmg: 30, head: 2, rpm: 330, mag: 12, reserve: 60, reload: 1.3, auto: false, spread: [0.012, 0.005], bloom: 0.008, bloomMax: 0.04, recoil: [0.022, 0.008], range: [16, 42, 0.5], speed: 1.12, zoom: 1.2, desc: '보조 무기' },
   knife: { id: 'knife', name: '칼', icon: '🔪', slot: 2, melee: true, dmg: 75, head: 1, rpm: 110, reach: 2.2, speed: 1.2, desc: '가장 빠르게 달림 · 뒤에서 찌르면 즉사' },
   grenade: { id: 'grenade', name: '수류탄', icon: '💣', slot: 3, throw: true, count: 2, dmg: 150, radius: 7.5, fuse: 2.2, speed: 1.05, desc: '2.2초 뒤 폭발' },
   // 좀비 (근접 공격만)
   claw: { id: 'claw', name: '할퀴기', slot: 0, melee: true, dmg: 14, head: 1, rpm: 70, reach: 1.9, speed: 1 },
 };
-export const PRIMARIES = ['ar', 'smg', 'shotgun', 'sniper', 'lmg'];
+export const PRIMARIES = ['ar', 'smg', 'shotgun', 'sniper', 'lmg', 'dmr', 'launcher'];
 
 export const MODES = [
   { id: 'tdm', name: '팀 데스매치', desc: '5 대 5 · 먼저 30킬 또는 5분', goal: 30, time: 300, teams: true },
@@ -56,6 +58,36 @@ export const ZOMBIES = {
 const BLUE = 0x2f6fb3, RED = 0xb9433a, GREEN = 0x3f8f5a, YEL = 0xd1a12e, GRAY = 0x8a929c, WHITE = 0xe6e9ee;
 
 export const MAPS = [
+  {
+    id: 'forest', name: '숲속 훈련장', emoji: '🌲', size: [74, 56], ground: 'grass', wallMat: 'planks',
+    sky: 0x9fd3f5, fog: 0xcfe8d8, fogFar: 120, sun: 0xfff6dc,
+    build(b) {
+      // 가운데 나무 단상 (양쪽 계단)
+      b.box(0, 0, 10, 8, 1.1, 'planks'); b.box(0, 0, 4, 3, 1.0, 'wood', { y: 1.1 });
+      b.stairs(-5 - 0.38 * 4, 0, 'e', 1.1, 3, 'planks'); b.stairs(5 + 0.38 * 4, 0, 'w', 1.1, 3, 'planks');
+      b.sym(() => {
+        // 통나무집 두 채
+        b.house(-20, -15, 9, 7, 3, { doors: [['e', 0, 2], ['s', -2, 2]], wins: [['n', 0, 2], ['e', 2.6, 1.4]], mat: 'planks', roof: 'roof', floor: 'planks' });
+        b.house(-22, 14, 8, 8, 3, { doors: [['e', -1.5, 2], ['n', 1.5, 2]], wins: [['s', 0, 2], ['e', 2.4, 1.4]], mat: 'planks', roof: 'dark', floor: 'planks' });
+        b.tower(-10, -8, 3.2, 's');
+        // 통나무 · 돌담 · 상자 · 천막
+        b.box(-14, 5, 5, 0.8, 0.95, 'planks'); b.box(-6, -17, 0.8, 5, 0.95, 'planks'); b.box(-27, 0, 0.8, 6, 0.95, 'planks');
+        b.wall(-16, -4, -16, 2, 1.1, 'brick', 0.6, { tint: 0x9aa0a6 }); b.wall(-8, 12, -3, 12, 1.1, 'brick', 0.6, { tint: 0x9aa0a6 }); b.wall(-4, -11, 2, -11, 2.4, 'brick', 0.6, { tint: 0x9aa0a6 });
+        b.crate(-12, -18, 1.3, 2); b.crate(-13.4, -18, 1.3, 1); b.crate(-5, 20, 1.4, 1); b.crate(-18, 6, 1.3, 1); b.crate(-30, -10, 1.3, 2);
+        b.box(-29, 12, 4, 5, 2, 'sandbag', { tint: 0x7a9a66 });
+        b.sandbags(-28, -3.5, 5, 'z'); b.sandbags(-28, 4.5, 5, 'z');
+        b.barrel(-17, -9, 0x8e6b3a); b.barrel(-3, 14, 0x8e6b3a); b.barrel(-24, 20, 0x4a6fa5);
+        for (const [x, z, s] of [[-34, -24, 1.3], [-28, -25, 1], [-15, -25, 1.2], [-35, 22, 1.2], [-27, 24, 1], [-13, 25, 1.3], [-24, -4, 1], [-21, 3, 1.2], [-9, 6, 0.9], [-6, -23, 1.1], [-2, 17, 1], [-33, 16, 1.1], [-17, 21, 1]]) b.tree(x, z, (x + z) % 2 ? 'pine' : 'tree', s);
+      });
+    },
+    spawns: {
+      a: [[-34, -1], [-34, 2], [-34, -4], [-32, 7], [-32, -7], [-30, 1.5], [-30, -2]],
+      ffa: [[-34, 0], [34, 0], [-26, -22], [26, 22], [-8, 24], [8, -24], [-34, 25], [34, -25], [0, -8], [0, 8], [-18, -6], [18, 6]],
+      zombie: [[-35, -26], [35, 26], [-35, 26], [35, -26], [0, -26.5], [0, 26.5], [-35, 0], [35, 0]],
+      player: [0, 3, 1.1],
+    },
+    pickups: [[0, -6, 'ammo'], [0, 6, 'ammo'], [-20, -15, 'health'], [20, 15, 'health'], [-22, 14, 'ammo'], [22, -14, 'ammo'], [-10, -8, 'health', 3.45], [10, 8, 'health', 3.45]],
+  },
   {
     id: 'yard', name: '컨테이너 야드', emoji: '📦', size: [68, 46], ground: 'asphalt', wallMat: 'concrete',
     sky: 0x8fbfe8, fog: 0xc9dff0, fogFar: 150, sun: 0xfff4e0,

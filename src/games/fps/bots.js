@@ -4,7 +4,7 @@
 const wrap = (a) => { a = (a + Math.PI) % (Math.PI * 2); return (a < 0 ? a + Math.PI * 2 : a) - Math.PI; };
 const rnd = (a, b) => a + Math.random() * (b - a);
 // 무기별로 좋아하는 교전 거리(m)
-const PREF = { ar: 17, smg: 9, shotgun: 5, sniper: 34, lmg: 20, pistol: 10, knife: 1.2, grenade: 14 };
+const PREF = { dmr: 28, launcher: 15, ar: 17, smg: 9, shotgun: 5, sniper: 34, lmg: 20, pistol: 10, knife: 1.2, grenade: 14 };
 
 export function newAI() {
   return { target: null, senseT: Math.random() * 0.2, reactT: 0, errX: 0, errY: 0, errT: 0, burst: 0, pause: 0, strafe: Math.random() < 0.5 ? 1 : -1, strafeT: 0,
