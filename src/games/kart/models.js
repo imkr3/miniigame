@@ -97,6 +97,21 @@ function kartParts(kart, color) {
     for (const z of [-0.9, -0.3, 0.3, 0.9]) sym((s) => paint.push(part(sphere(0.045, 6, 5), CHROME, s * 0.815, 0.86, z)));                                   // 리벳
     sym((s) => paint.push(part(roundedBox(0.06, 0.12, 1.7, 0.03, 2), WHITE, s * 0.3, 1.105, -0.05, 0, 0, HALF)));
     headlight(0.56, 0.9, 1.25, 0.1); taillight(0.56, 0.9, -1.26);
+  } else if (kart.id === 'rocket') { // 로켓: 흰 동체 + 색 코 + 꼬리 날개 3장
+    wheelR = 0.36; wheelW = 0.3; base = 1.0; track = 0.84; seatY = 0.72; exY = 0.5; exZ = -1.55; exX = 0.16;
+    paint.push(part(lathe([[0.05, -1.45], [0.34, -1.35], [0.5, -0.8], [0.5, 0.1], [0.36, 0.95], [0.14, 1.55], [0.01, 1.8]], 20), WHITE, 0, 0.52, 0, HALF, 0, 0, 1.15, 1, 0.8));
+    paint.push(part(lathe([[0.31, 0], [0.2, 0.36], [0.07, 0.64], [0, 0.72]], 16), color, 0, 0.52, 1.1, HALF, 0, 0, 1.15, 1, 0.8));
+    paint.push(part(roundedBox(0.07, 0.56, 0.62, 0.03, 2), color, 0, 1.0, -1.15, -0.3));
+    sym((s) => paint.push(part(roundedBox(0.6, 0.07, 0.62, 0.03, 2), color, s * 0.72, 0.5, -1.15, 0, s * 0.3, 0)));
+    sym((s) => { glow.push(part(ellipsoid(0.03, 0.1, 0.1, 10, 8), 0x67e8f9, s * 0.575, 0.6, 0.2)); paint.push(part(new THREE.TorusGeometry(0.1, 0.025, 6, 14), CHROME, s * 0.57, 0.6, 0.2, 0, HALF, 0)); }); // 둥근 창
+    headlight(0.2, 0.5, 1.28, 0.06); taillight(0.3, 0.6, -1.4);
+  } else if (kart.id === 'bubble') { // 버블: 공처럼 둥근 차체 + 큰 눈 전조등 + 안테나
+    wheelR = 0.34; wheelW = 0.3; base = 0.82; track = 0.8; seatY = 0.92; exY = 0.5; exZ = -1.12; exX = 0.24;
+    paint.push(part(ellipsoid(0.74, 0.5, 1.02, 22, 14), color, 0, 0.64, 0));
+    paint.push(part(ellipsoid(0.75, 0.16, 1.03, 22, 8), WHITE, 0, 0.5, 0));
+    matte.push(part(ellipsoid(0.5, 0.12, 0.6, 16, 8), DARK, 0, 1.08, -0.2));                      // 좌석 구멍
+    matte.push(part(cyl(0.012, 0.012, 0.6, 6), 0x30353f, 0.3, 1.25, -0.75)); glow.push(part(sphere(0.07, 10, 8), 0xfde047, 0.3, 1.58, -0.75));
+    headlight(0.34, 0.7, 0.84, 0.15); taillight(0.34, 0.66, -0.92);
   } else { // 클래식: 둥근 코 + 옆 포드 + 뒤 엔진 덮개
     paint.push(part(ellipsoid(0.47, 0.25, 0.8), color, 0, 0.5, 0.78));
     paint.push(part(ellipsoid(0.125, 0.257, 0.81), WHITE, 0, 0.5, 0.78));                                    // 코 위 흰 줄
@@ -194,11 +209,23 @@ function characterParts(ch, paint, matte, glow, ox, oy, oz) {
       }
       break;
     }
-    default: { // 토끼 · 곰 · 고양이 · 판다
+    case 'alien': { // 외계인: 넓은 머리 + 크고 기울어진 검은 눈 + 빛나는 더듬이
+      H(fur, ellipsoid(0.41, 0.36, 0.36, 22, 16), c, 0, 0.02, 0);
+      sym((s) => {
+        H(paint, ellipsoid(0.1, 0.135, 0.05, 12, 10), BLACK, s * 0.155, 0.05, 0.3, 0, 0, s * 0.5);
+        H(glow, sphere(0.022, 6, 4), WHITE, s * 0.18, 0.11, 0.345);
+        H(fur, cyl(0.013, 0.013, 0.26, 6), c, s * 0.15, 0.45, 0, 0, 0, s * -0.3);
+        H(glow, sphere(0.05, 10, 8), a, s * 0.19, 0.57, 0);
+      });
+      smile(-0.13, 0.335, 0.035);
+      break;
+    }
+    default: { // 토끼 · 곰 · 고양이 · 판다 · 여우 · 코알라
       H(fur, sphere(R, 22, 16), c, 0, 0, 0, 0, 0, 0, 1.06, 0.96, 1);
-      const muzzle = ch.id === 'panda' || ch.id === 'rabbit' ? WHITE : ch.id === 'cat' ? a : mix(c, a, 0.75);
+      const muzzle = ch.id === 'panda' || ch.id === 'rabbit' || ch.id === 'fox' ? WHITE : ch.id === 'cat' ? a : mix(c, a, 0.75);
       H(fur, ellipsoid(0.155, 0.11, 0.1, 12, 8), muzzle, 0, -0.075, 0.29);
-      H(paint, ellipsoid(0.046, 0.032, 0.03, 12, 8), ch.id === 'rabbit' || ch.id === 'cat' ? 0xf472b6 : BLACK, 0, -0.03, 0.385);
+      if (ch.id === 'koala') H(paint, ellipsoid(0.07, 0.09, 0.05, 12, 8), 0x1f2937, 0, -0.03, 0.375); // 코알라의 큰 코
+      else H(paint, ellipsoid(0.046, 0.032, 0.03, 12, 8), ch.id === 'rabbit' || ch.id === 'cat' ? 0xf472b6 : BLACK, 0, -0.03, 0.385);
       smile(-0.085, 0.385);
       if (ch.id === 'panda') {
         sym((s) => {
@@ -212,6 +239,13 @@ function characterParts(ch, paint, matte, glow, ox, oy, oz) {
       if (ch.id === 'rabbit') {
         sym((s) => { H(fur, capsule(0.078, 0.42), c, s * 0.13, 0.56, -0.03, 0, 0, s * -0.16); H(fur, ellipsoid(0.042, 0.2, 0.025, 8, 6), a, s * 0.132, 0.57, 0.04, 0, 0, s * -0.16); });
         H(paint, roundedBox(0.062, 0.05, 0.02, 0.012, 1), WHITE, 0, -0.14, 0.375);                 // 앞니
+      } else if (ch.id === 'fox') { // 뾰족하고 큰 귀 (끝은 검정, 안쪽은 흰색) + 흰 볼 털
+        sym((s) => {
+          H(fur, roundCone(0.14, 0.34), c, s * 0.2, 0.2, -0.02, 0, 0, s * -0.25);
+          H(fur, roundCone(0.075, 0.2), WHITE, s * 0.2, 0.24, 0.04, 0, 0, s * -0.25);
+          H(fur, roundCone(0.06, 0.13), 0x1f2937, s * 0.255, 0.44, -0.02, 0, 0, s * -0.25);
+          H(fur, ellipsoid(0.1, 0.09, 0.06, 10, 8), WHITE, s * 0.24, -0.1, 0.23);
+        });
       } else if (ch.id === 'cat') {
         sym((s) => {
           H(fur, roundCone(0.135, 0.27), c, s * 0.2, 0.22, -0.02, 0, 0, s * -0.32);
@@ -221,7 +255,8 @@ function characterParts(ch, paint, matte, glow, ox, oy, oz) {
         for (const x of [-0.07, 0, 0.07]) H(fur, ellipsoid(0.02, 0.06, 0.02, 8, 8), 0xc2410c, x, 0.3 - Math.abs(x) * 0.35, 0.17 + (x ? -0.035 : 0), -0.75, 0, 0); // 이마 줄무늬
       } else {
         const earC = ch.id === 'panda' ? 0x1c1d22 : c;
-        sym((s) => { H(fur, sphere(0.12, 16, 12), earC, s * 0.26, 0.27, -0.02); if (ch.id !== 'panda') H(fur, ellipsoid(0.07, 0.07, 0.03, 12, 8), a, s * 0.26, 0.27, 0.075); });
+        const er = ch.id === 'koala' ? 0.17 : 0.12, ex = ch.id === 'koala' ? 0.33 : 0.26; // 코알라는 크고 복슬한 귀
+        sym((s) => { H(fur, sphere(er, 16, 12), earC, s * ex, 0.27 - (er - 0.12), -0.02); if (ch.id !== 'panda') H(fur, ellipsoid(er * 0.6, er * 0.6, 0.03, 12, 8), a, s * ex, 0.27 - (er - 0.12), er * 0.62); });
       }
     }
   }

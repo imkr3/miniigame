@@ -895,6 +895,15 @@ export class Track {
         ]), vc, umb.filter((_, i) => i % 3 === k));
       });
       place(ellipsoid(3, 3, 3, 20, 12), new THREE.MeshLambertMaterial({ color: 0xfcd34d }), rest.slice(umb.length), -1.6, 1.6, 0.5);
+    } else if (kind === 'candy') { // 사탕 왕국: 막대사탕 · 지팡이 사탕 · 젤리 · 멀리 컵케이크 언덕
+      const [A, B, C] = split(spots, 3);
+      [0xf472b6, 0x60a5fa, 0xfacc15].forEach((col, k) => place(merge([
+        part(new THREE.CylinderGeometry(0.12, 0.12, 3.4, 8), 0xffffff, 0, 1.7, 0), part(ellipsoid(1.3, 1.3, 0.36, 18, 12), col, 0, 4.2, 0),
+        part(new THREE.TorusGeometry(0.7, 0.13, 6, 18), 0xffffff, 0, 4.2, 0.3), part(new THREE.TorusGeometry(0.7, 0.13, 6, 18), 0xffffff, 0, 4.2, -0.3),
+      ]), vc, A.filter((_, i) => i % 3 === k)));
+      place(merge([part(tube([[0, 0, 0], [0, 3, 0], [0.3, 3.9, 0], [1, 4.25, 0], [1.6, 3.8, 0]], 0.27, 16, 8), (x, y) => (Math.floor((y + x) * 2.2) % 2 ? 0xef4444 : 0xffffff))]), vc, B);
+      place(merge([0xa78bfa, 0x34d399, 0xfb923c].map((col, i) => part(lathe([[1.1, 0], [1.0, 0.5], [0.6, 1.0], [0, 1.2]], 14), col, i * 1.9 - 1.9, 0, (i % 2) * 1.2, 0, 0, 0, 1 - i * 0.15))), vc, C);
+      place(merge([part(lathe([[40, 0], [36, 14], [30, 18]], 20), 0xf5d0a9), part(ellipsoid(34, 16, 34, 20, 10), 0xfbcfe8, 0, 22, 0), part(sph(5, 12, 8), 0xef4444, 0, 39, 0)]), vc, ring(9, 42, 1.5));
     } else if (kind === 'clouds') { // 구름 정원: 몽실몽실한 구름 + 떠 있는 작은 섬
       const cl = spots.filter((_, i) => i % 5 < 3).map((p) => ({ ...p, s: 2 + Math.random() * 3, y0: 6 + Math.random() * 30 }));
       place(merge([[0, 0, 0, 2.2], [2.1, -0.3, 0.3, 1.6], [-2.2, -0.35, -0.2, 1.7], [0.8, 1.0, -0.4, 1.5], [-0.9, 0.7, 0.6, 1.3]].map(([x, y, z, r]) => part(sph(r, 12, 8), 0xffffff, x, y, z))), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x8a93a6 }), cl); // 구름은 그늘져도 밝게

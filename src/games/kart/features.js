@@ -287,6 +287,8 @@ export function buildFeatures(track, g, quality = 1) {
       anims.push({ kind: 'pulse2', obj: lamp });
     }
     addBalloons(g, anims, farSpot, 3);
+  } else if (kind === 'candy') { // 사탕 왕국: 열기구
+    addBalloons(g, anims, farSpot, 6);
   } else if (kind === 'volcano') { // 화산: 용암 폭포 (멀리 절벽에서 흘러내림)
     const lavaTex = canvasTex(32, 128, (c, w, h) => {
       for (let y = 0; y < h; y += 2) { c.fillStyle = Math.random() < 0.3 ? '#fde047' : Math.random() < 0.6 ? '#f97316' : '#dc2626'; c.fillRect(0, y, w, 2); }

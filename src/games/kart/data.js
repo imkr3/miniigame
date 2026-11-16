@@ -9,6 +9,9 @@ export const CHARACTERS = [
   { id: 'frog',   name: '개굴', animal: '개구리', emoji: '🐸', color: 0x4ade80, accent: 0xfef9c3, kartColor: 0x16a34a, speed: 3, accel: 3, weight: 3, handling: 4 },
   { id: 'penguin', name: '펭구', animal: '펭귄', emoji: '🐧', color: 0x1e293b, accent: 0xf8fafc, kartColor: 0x2563eb, speed: 4, accel: 3, weight: 3, handling: 3 },
   { id: 'panda',  name: '죽순', animal: '판다', emoji: '🐼', color: 0xf8fafc, accent: 0x111827, kartColor: 0x111827, speed: 4, accel: 2, weight: 5, handling: 2 },
+  { id: 'fox',    name: '여울', animal: '여우', emoji: '🦊', color: 0xea580c, accent: 0xfff7ed, kartColor: 0xdc2626, speed: 3, accel: 5, weight: 1, handling: 4 },
+  { id: 'koala',  name: '코코', animal: '코알라', emoji: '🐨', color: 0x9ca3af, accent: 0xf8fafc, kartColor: 0x0d9488, speed: 3, accel: 3, weight: 4, handling: 3 },
+  { id: 'alien',  name: '삐뽀', animal: '외계인', emoji: '👽', color: 0xa78bfa, accent: 0x22d3ee, kartColor: 0x7c3aed, speed: 5, accel: 3, weight: 2, handling: 3 },
   { id: 'duck',   name: '꽥이', animal: '오리', emoji: '🐥', color: 0xfde047, accent: 0xfb923c, kartColor: 0xeab308, speed: 2, accel: 4, weight: 2, handling: 5 },
 ];
 
@@ -16,6 +19,8 @@ export const KARTS = [
   { id: 'classic', name: '클래식',    desc: '균형 잡힌 기본 카트', speed: 0, accel: 0, weight: 0, handling: 0 },
   { id: 'sport',   name: '스피드스터', desc: '최고 속도↑ 가속·핸들링↓', speed: 1, accel: -1, weight: 0, handling: -1 },
   { id: 'buggy',   name: '버기',      desc: '가속↑ 풀밭에서 덜 느려짐', speed: -1, accel: 2, weight: -1, handling: 1, offroad: true },
+  { id: 'rocket',  name: '로켓',      desc: '최고 속도↑↑ 가속↓↓ (직선 최강)', speed: 2, accel: -2, weight: 0, handling: -1 },
+  { id: 'bubble',  name: '버블',      desc: '핸들링↑↑ 가속↑ 가볍고 느림', speed: -1, accel: 1, weight: -2, handling: 2 },
   { id: 'tank',    name: '탱크',      desc: '무게↑ 부딪혀도 안 밀림', speed: 1, accel: -1, weight: 2, handling: -1 },
 ];
 
@@ -90,6 +95,12 @@ export const TRACKS = [
     ...fromCourse('beach'), width: 18,
     boosts: [0.04, 0.48, 0.8], boxes: [0.11, 0.2, 0.31, 0.62, 0.72, 0.85], shortcuts: [{ from: 0.78, to: 0.94, side: 1 }, { kind: 'branch', from: 0.06, to: 0.26, side: -1, out: 60, boosts: [0.3], boxes: [0.6], label: '아이템 길' }], surfaces: [{ from: 0.25, to: 0.33, kind: 'wood' }],
     theme: { sky: 0x67e8f9, fog: 0xbae6fd, ground: 0xfde68a, dirt: 0xd6a85c, wall: 0xffffff, wallTop: 0x06b6d4, curbA: 0xf43f5e, curbB: 0xffffff, scenery: 'beach', sun: 0xfffbeb },
+  },
+  {
+    id: 'candy', name: '사탕 왕국', desc: '넓은 고속 커브, 언덕 위 시케인, 큰 점프, 긴 S자와 마지막 헤어핀', emoji: '🍭',
+    ...fromCourse('candy'), width: 18,
+    boosts: [0.05, 0.47, 0.8], boxes: [0.1, 0.24, 0.45, 0.62, 0.86], shortcuts: [{ kind: 'branch', from: 0.5, to: 0.68, side: -1, out: 44, boxes: [0.5], label: '아이템 길' }], surfaces: [{ from: 0.18, to: 0.26, kind: 'brick' }],
+    theme: { sky: 0xffb8de, fog: 0xffe1f1, ground: 0xa7f3d0, dirt: 0xf9a8d4, wall: 0xffffff, wallTop: 0xf472b6, curbA: 0xf472b6, curbB: 0xffffff, scenery: 'candy', sun: 0xffffff },
   },
 ];
 

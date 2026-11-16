@@ -448,7 +448,7 @@ export default class Kart extends GameBase {
       roster = [...this.gp.roster].sort((a, b) => a.pts - b.pts || a.start - b.start);
     } else {
       // 혼자: 상대는 나머지 캐릭터, 카트는 무작위, 플레이어는 6번째 출발
-      const others = CHARACTERS.map((_, i) => i).filter((i) => i !== this.sel.char);
+      const others = CHARACTERS.map((_, i) => i).filter((i) => i !== this.sel.char).sort(() => Math.random() - 0.5).slice(0, 7); // 나 + 무작위 7명 = 8명
       roster = [...others.slice(0, 5), this.sel.char, ...others.slice(5)].map((ci, k) => (ci === this.sel.char
         ? { id: 'me', name: CHARACTERS[ci].name, ci, ki: this.sel.kart, human: true }
         : { id: `ai${k}`, name: CHARACTERS[ci].name, ci, ki: Math.floor(Math.random() * KARTS.length), human: false }));
@@ -563,7 +563,7 @@ export default class Kart extends GameBase {
     this.mode = MODES[s.mode].id;
     if (this.mode === 'gp') {
       // 상대 7명(나머지 캐릭터, 카트 무작위)을 5경기 동안 유지
-      const others = CHARACTERS.map((_, i) => i).filter((i) => i !== s.char);
+      const others = CHARACTERS.map((_, i) => i).filter((i) => i !== s.char).sort(() => Math.random() - 0.5).slice(0, 7);
       const roster = [...others.slice(0, 5), s.char, ...others.slice(5)].map((ci, k) => (ci === s.char
         ? { id: 'me', name: CHARACTERS[ci].name, ci, ki: s.kart, human: true }
         : { id: `ai${k}`, name: CHARACTERS[ci].name, ci, ki: Math.floor(Math.random() * KARTS.length), human: false }));

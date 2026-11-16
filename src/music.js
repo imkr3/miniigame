@@ -279,6 +279,8 @@ export function compose(def) {
 
 // ---------------- 소리 만들기 ----------------
 let noiseBuf = null, distCurve = null;
+// 사탕 왕국: 해변 곡을 더 빠르고 높게
+SONGS['kart-candy'] = { ...SONGS['kart-beach'], bpm: (SONGS['kart-beach'].bpm ?? 120) + 14, root: (SONGS['kart-beach'].root ?? 60) + 3 };
 const cache = {};
 
 export const music = {
