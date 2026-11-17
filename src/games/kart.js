@@ -81,7 +81,9 @@ export default class Kart extends GameBase {
     action: ['Space', 'ShiftLeft'], item: ['KeyX', 'KeyE'],
   };
   static actionLabels = { up: '가속', down: '브레이크 / 후진', left: '왼쪽', right: '오른쪽', action: '점프·드리프트 / 결정', item: '아이템 사용' };
+  static landscape = true;
   static settings = [
+    { id: 'autoFs', label: '모바일: 시작하면 가로 전체화면', type: 'toggle', default: true, tip: '아이폰 사파리처럼 전체화면을 지원하지 않는 기기에서는 폰을 가로로 돌려 주세요' },
     { id: 'difficulty', label: '난이도 (상대 실력)', type: 'select', default: 'normal', options: [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']] },
     { id: 'laps', label: '랩 수', type: 'range', min: 1, max: 5, default: 3, unit: '랩' },
     { id: 'autoAccel', label: '자동 가속', type: 'select', default: 'touch', options: [['touch', '모바일만'], ['always', '항상'], ['never', '끄기']] },

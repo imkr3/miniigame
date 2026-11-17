@@ -91,6 +91,10 @@ const CSS = `
 .mg-hud .mg-info{flex:1;text-align:right;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mg-hud button{touch-action:manipulation;background:#262b3a;color:#e5e7eb;border:0;border-radius:8px;width:32px;height:30px;cursor:pointer;font-size:15px;line-height:1;flex:none}
 .mg-hud button:hover{background:#323949}
+.mg-root:fullscreen{width:100vw;height:100vh;max-width:none;background:#0e0f14}
+.mg-root:-webkit-full-screen{width:100vw;height:100vh;max-width:none;background:#0e0f14}
+.mg-rotate{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:5;border:0;border-radius:999px;padding:8px 14px;background:#3b82f6;color:#fff;font:800 13px system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.4);white-space:nowrap}
+.mg-rotate[hidden]{display:none}
 .mg-stage{position:relative;display:flex;align-items:center;justify-content:center;background:var(--mg-bg);overflow:hidden}
 .mg-fit .mg-stage{flex:1;min-height:0}
 .mg-screen{position:relative;flex:none}
@@ -194,6 +198,9 @@ const isCoarse = () => window.matchMedia?.('(pointer: coarse)').matches ?? false
 // 한 페이지에 게임이 여러 개 있어도 마지막으로 클릭/시작한 게임만 키 입력을 받는다.
 let activeGame = null;
 
+const fsSupported = () => !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+const fsElement = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
+
 export class GameBase {
   /** 게임 정보. controls = 키보드 설명, touchControls = 모바일 설명 */
   static meta = { id: 'base', title: 'Game', description: '', controls: '', touchControls: '' };
@@ -211,6 +218,8 @@ export class GameBase {
   static gestures = { tap: 'action', left: 'left', right: 'right', up: 'up', down: 'down' };
   /** 플레이 중 마우스 클릭 → 액션 */
   static mouseClick = null;
+  /** 가로 화면이 어울리는 게임 (카트·FPS): 모바일에서 가로 전체화면 안내·자동 전환 */
+  static landscape = false;
 
   /**
    * @param {HTMLElement} container 게임을 붙일 요소
@@ -238,7 +247,7 @@ export class GameBase {
     Object.assign(this.cfg, loadJSON('miniigame:global', {}), loadJSON(this.settingsKey, {}));
     this.width = width;
     this.height = height;
-    this.fit = fit;
+    this.fit = fit; this.fit0 = fit;
     this.controlsMode = controls;
     this.onEvent = onEvent;
     this.onExit = onExit;
@@ -371,6 +380,7 @@ export class GameBase {
 
   // ---- 외부(호스트 사이트)에서 쓰는 API ----
   start() {
+    if (this.touchMode && this.constructor.landscape && this.cfg.autoFs !== false) this.enterFullscreen(); // 모바일: 시작하면 가로 전체화면
     this.recordValue = undefined;
     this._bestShown = false;
     this.setScore(0);
@@ -424,8 +434,25 @@ export class GameBase {
     if ((this.cfg.music ?? 60) <= 0) { music.stopFor(this); return; }
     music.play(this.musicId ?? this.meta.id, this);
   }
+  /** 전체화면 켜기 (가로 게임은 화면도 가로로 고정 시도) - 버튼·탭 등 사용자 입력 안에서 불러야 함 */
+  enterFullscreen() {
+    if (!fsSupported() || fsElement() === this.root) return;
+    const el = this.root, req = el.requestFullscreen ?? el.webkitRequestFullscreen;
+    try {
+      const pr = req.call(el, { navigationUI: 'hide' });
+      const lock = () => { if (this.constructor.landscape) screen.orientation?.lock?.('landscape').catch(() => {}); };
+      if (pr?.then) pr.then(lock).catch(() => {}); else lock();
+    } catch { /* 거부됨 */ }
+  }
+  toggleFullscreen() {
+    if (fsElement() === this.root) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document)?.catch?.(() => {});
+    else this.enterFullscreen();
+  }
   destroy() {
     cancelAnimationFrame(this._raf);
+    document.removeEventListener('fullscreenchange', this._onFsChange);
+    document.removeEventListener('webkitfullscreenchange', this._onFsChange);
+    if (fsElement() === this.root) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document)?.catch?.(() => {});
     music.stopFor(this, 0.2);
     this.onDestroy();
     this.net?.close();
@@ -449,7 +476,8 @@ export class GameBase {
   _buildDom(container, maxWidth) {
     const root = document.createElement('div');
     root.className = 'mg-root' + (this.fit ? ' mg-fit' : '');
-    if (!this.fit) root.style.maxWidth = `${maxWidth}px`;
+    this._maxW = `${maxWidth}px`;
+    if (!this.fit) root.style.maxWidth = this._maxW;
     root.innerHTML = `
       <div class="mg-hud">
         <button type="button" class="mg-exit" aria-label="나가기">←</button>
@@ -457,10 +485,12 @@ export class GameBase {
         <span>최고<b class="mg-best">0</b></span>
         <span class="mg-info"></span>
         <button type="button" class="mg-mute" aria-label="소리"></button>
+        <button type="button" class="mg-fs" aria-label="전체화면">⛶</button>
         <button type="button" class="mg-gear" aria-label="설정">⚙</button>
         <button type="button" class="mg-pause" aria-label="일시정지"></button>
       </div>
       <div class="mg-stage">
+        <button type="button" class="mg-rotate" hidden>📱↻ 가로 전체화면으로 크게 하기</button>
         <div class="mg-screen">
           <canvas></canvas>
           <div class="mg-overlay"></div>
@@ -500,6 +530,22 @@ export class GameBase {
     root.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && !this.$settings?.contains(b)) b.blur(); });
     this.$mute.addEventListener('click', () => { sfx.unlock(); this.toggleMute(); });
     $('.mg-gear').addEventListener('click', () => this.openSettings());
+    // 전체화면 (지원하지 않는 기기 - 예: 아이폰 사파리 - 에서는 버튼을 숨기고 '가로로 돌리기' 안내만)
+    this.$fs = $('.mg-fs'); this.$rotate = $('.mg-rotate');
+    if (!fsSupported()) this.$fs.remove();
+    else this.$fs.addEventListener('click', () => { sfx.unlock(); this.toggleFullscreen(); });
+    this.$rotate.addEventListener('click', (e) => { e.stopPropagation(); sfx.unlock(); if (fsSupported()) this.enterFullscreen(); else this.$rotate.hidden = true; });
+    this._onFsChange = () => {
+      const on = fsElement() === this.root;
+      this.root.classList.toggle('mg-fit', on || this.fit0);
+      this.fit = on || this.fit0;
+      if (!this.fit0) this.root.style.maxWidth = on ? '' : this._maxW;
+      if (this.$fs) this.$fs.textContent = on ? '🗗' : '⛶';
+      if (!on) try { screen.orientation?.unlock?.(); } catch { /* 무시 */ }
+      this._layout();
+    };
+    document.addEventListener('fullscreenchange', this._onFsChange);
+    document.addEventListener('webkitfullscreenchange', this._onFsChange);
     this.$pauseBtn.addEventListener('click', () => {
       sfx.unlock();
       if (this.state === 'ready' || this.state === 'over') this.start(); else this.togglePause();
@@ -722,6 +768,9 @@ export class GameBase {
   }
 
   _layout() {
+    // 가로 게임을 폰 세로로 들고 있으면 '가로 전체화면' 안내
+    const portrait = this.touchMode && this.constructor.landscape && this.root.clientHeight > this.root.clientWidth && fsElement() !== this.root;
+    if (this.$rotate && this.$rotate.hidden === portrait) this.$rotate.hidden = !portrait;
     // 폰을 눕혔을 때는 버튼을 양옆으로 배치
     const land = this.fit && this.touchMode && this.root.clientWidth > this.root.clientHeight * 1.15;
     if (land !== this.root.classList.contains('mg-land')) this.root.classList.toggle('mg-land', land);

@@ -80,7 +80,7 @@ export default class Fps extends GameBase {
   static meta = {
     id: 'fps',
     title: '스쿼드 슈터',
-    description: '1인칭 슈팅! 팀 데스매치·개인전·좀비 서바이벌. 주무기 5종과 권총·칼·수류탄으로 봇 분대와 싸우세요. 헤드샷, 연속 킬, 계급 승급.',
+    description: '1인칭 슈팅! 팀 데스매치·개인전·좀비 서바이벌. 주무기 7종과 권총·칼·수류탄으로 봇 분대와 싸우세요. 헤드샷, 연속 킬, 계급 승급.',
     controls: 'WASD 이동 · 마우스 조준 · 좌클릭 사격 · 우클릭 정조준 · Space 점프 · Shift 달리기 · C 앉기 · R 재장전 · 1~4 무기 · G 수류탄 · F 칼 · Tab 점수판',
     touchControls: '왼쪽 화면 = 이동 스틱 · 오른쪽 화면 드래그 = 조준 · 사격/조준/점프/재장전 버튼 · 조준선이 적에 닿으면 자동 사격 · 📱 가로 화면 추천',
   };
@@ -94,7 +94,9 @@ export default class Fps extends GameBase {
     up: '앞으로', down: '뒤로', left: '왼쪽', right: '오른쪽', action: '점프 / 결정', fire: '사격 (키보드)', ads: '정조준 (키보드)', lookl: '왼쪽 보기', lookr: '오른쪽 보기', looku: '위 보기', lookd: '아래 보기',
     sprint: '달리기', crouch: '앉기', reload: '재장전', w1: '주무기', w2: '권총', w3: '칼', w4: '수류탄', w5: '(부활 대기 중) 주무기 5', nade: '수류탄 바로 던지기', melee: '칼 바로 휘두르기', last: '이전 무기', score: '점수판',
   };
+  static landscape = true;
   static settings = [
+    { id: 'autoFs', label: '모바일: 시작하면 가로 전체화면', type: 'toggle', default: true, tip: '아이폰 사파리처럼 전체화면을 지원하지 않는 기기에서는 폰을 가로로 돌려 주세요' },
     { id: 'difficulty', label: '봇 실력', type: 'select', default: 'normal', options: [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']] },
     { id: 'sens', label: '조준 감도', type: 'range', min: 1, max: 20, default: 8 },
     { id: 'fov', label: '시야각', type: 'range', min: 60, max: 100, step: 5, default: 75, unit: '°' },
