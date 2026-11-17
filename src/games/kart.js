@@ -797,6 +797,12 @@ export default class Kart extends GameBase {
     // 드리프터: 드리프트 키를 누른 채 방향을 꺾어도 시작
     if (KR && !r.drifting && inp.drift && r.grounded && !spinning && Math.abs(inp.steer) > 0.2 && r.speed > 11) { r.drifting = true; r.driftDir = Math.sign(inp.steer); r.driftT = 0; }
     if (KR) {
+      // 반대쪽 방향키 = 그쪽으로 바로 드리프트 전환 (S자 연속 드리프트). 사람만 (AI 는 경로 보정용 조향이 흔들려 계속 뒤집힘)
+      r.flipCd = Math.max(0, (r.flipCd ?? 0) - dt);
+      if (r.drifting && r.grounded && r.isPlayer && r.flipCd <= 0 && inp.steer * r.driftDir < -0.5) {
+        r.driftDir = -r.driftDir; r.flipCd = 0.18; r.kGauge = (r.kGauge ?? 0) + 0.06; // 전환할 때 게이지 조금 더
+        if (r.isPlayer) this.sound('rotate');
+      }
       if (r.drifting && r.grounded) { // 미끄러지는 동안 속도가 조금씩 줄고, 부스터 게이지가 참 (가득 차면 부스터 1개, 최대 2개)
         r.speed -= r.speed * 0.32 * dt;
         r.kGauge = (r.kGauge ?? 0) + dt * 0.3 * clamp(r.speed / st.maxSpeed, 0, 1);
@@ -825,15 +831,15 @@ export default class Kart extends GameBase {
     let turn;
     if (r.gliding) turn = steer * st.turn * 0.85;
     // 드리프트 중엔 항상 드리프트 방향으로만 돎: 안쪽 키 = 빠르게, 반대쪽 키 = 천천히 (반대로 돌거나 반대쪽으로 끌려가지 않음)
-    else if (r.drifting && KR) turn = r.driftDir * (0.62 + 0.5 * inward) * st.turn * 1.25; // 드리프터: 훨씬 크게 돌고, 반대 키로 거의 멈춤(끌기)
+    else if (r.drifting && KR) turn = r.driftDir * (0.62 + 0.5 * Math.max(0, inp.steer * r.driftDir)) * st.turn * 1.25; // 드리프터: 크게 돌고, 안쪽 키를 누르면 더 급하게 (반대 키는 위에서 방향 전환)
     else if (r.drifting) turn = r.driftDir * (0.4 + 0.3 * inward) * st.turn * 1.2;
     else turn = steer * st.turn * spF * (r.speed >= 0 ? 1 : -1) * (boosting ? 0.9 : 1);
     if (!r.grounded && !r.drifting && !r.gliding) turn *= 0.5;
     if (r.onIce && r.grounded) turn *= 0.7; // 빙판: 덜 꺾이고
     r.h -= turn * dt;
     // 미끄러짐 각 (드리프트 중 일정)
-    const slipT = r.drifting ? r.driftDir * (KR ? 0.52 + 0.1 * inward : 0.2) : 0;
-    r.slip += (slipT - r.slip) * Math.min(1, dt * (KR ? 6 : 4));
+    const slipT = r.drifting ? r.driftDir * (KR ? 0.5 + 0.1 * Math.max(0, inp.steer * r.driftDir) : 0.2) : 0;
+    r.slip += (slipT - r.slip) * Math.min(1, dt * (KR ? 9 : 4)); // 드리프터는 차체가 빠르게 반대쪽으로 넘어감
     let mv = r.h + r.slip;
     // 빙판: 가는 방향이 차 방향을 천천히 따라옴 (미끄러짐)
     if (r.onIce && r.grounded) { r.iceMv = (r.iceMv ?? mv) + wrapAngle(mv - (r.iceMv ?? mv)) * Math.min(1, dt * 2.2); mv = r.iceMv; } else r.iceMv = mv;
