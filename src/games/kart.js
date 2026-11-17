@@ -726,6 +726,7 @@ export default class Kart extends GameBase {
   physics(r, inp, dt) {
     const st = r.stats, tr = this.track;
     const spinning = r.spinT > 0;
+    const KR = !!r.kart.kr; // 드리프터 카트: 끌기 드리프트 + 부스터 게이지
     if (spinning) { r.spinT -= dt; r.spinA += dt * 14; r.speed *= Math.pow(0.12, dt); inp = { accel: false, brake: false, steer: 0, drift: false, hop: false }; }
     else r.spinA = 0;
     if (r.stall > 0) { r.stall -= dt; inp = { ...inp, accel: false }; }
@@ -779,7 +780,9 @@ export default class Kart extends GameBase {
 
     // 점프(홉) → 드리프트 / 점프대 공중에서는 트릭
     if (inp.hop && !spinning) {
-      if (r.grounded) {
+      if (r.grounded && KR) { // 드리프터: 뛰지 않고 그 자리에서 바로 미끄러지기 시작
+        if (Math.abs(inp.steer) > 0.2 && r.speed > 11) { r.drifting = true; r.driftDir = Math.sign(inp.steer); r.driftT = 0; if (r.isPlayer) this.sound('rotate'); }
+      } else if (r.grounded) {
         r.vy = HOP_V; r.grounded = false; r.airT = 0; r.canTrick = false;
         if (Math.abs(inp.steer) > 0.2 && r.speed > 11) { r.drifting = true; r.driftDir = Math.sign(inp.steer); r.driftT = 0; }
         if (r.isPlayer) this.sound('jump');
@@ -790,6 +793,25 @@ export default class Kart extends GameBase {
     }
     if (!r.drifting && inp.drift && !r.grounded && !r.gliding && !r.canTrick && Math.abs(inp.steer) > 0.2 && r.speed > 11 && r.vy > 0) {
       r.drifting = true; r.driftDir = Math.sign(inp.steer); r.driftT = 0;
+    }
+    // 드리프터: 드리프트 키를 누른 채 방향을 꺾어도 시작
+    if (KR && !r.drifting && inp.drift && r.grounded && !spinning && Math.abs(inp.steer) > 0.2 && r.speed > 11) { r.drifting = true; r.driftDir = Math.sign(inp.steer); r.driftT = 0; }
+    if (KR) {
+      if (r.drifting && r.grounded) { // 미끄러지는 동안 속도가 조금씩 줄고, 부스터 게이지가 참 (가득 차면 부스터 1개, 최대 2개)
+        r.speed -= r.speed * 0.32 * dt;
+        r.kGauge = (r.kGauge ?? 0) + dt * 0.3 * clamp(r.speed / st.maxSpeed, 0, 1);
+        if (r.kGauge >= 1) { r.kGauge = 0; r.boosters = Math.min(2, (r.boosters ?? 0) + 1); if (r.isPlayer) { this.sound('bonus'); this.msg = { text: '부스터 충전!', t: 0.8, color: '#67e8f9' }; } }
+      }
+      // 순간 부스터: 드리프트를 끝낸 직후 가속 키를 다시 누르면 짧게 튀어 나감 (자동 가속·AI 는 자동)
+      if (r.instT > 0) {
+        r.instT -= dt;
+        if ((inp.accel && !r.prevAccel) || !r.isPlayer || this.touchMode) {
+          r.instT = 0; r.boostT = Math.max(r.boostT, 0.55); r.speed = Math.max(r.speed, st.maxSpeed * 1.08); r.turboFlash = 0.3;
+          if (r.isPlayer) { this.sound('bonus'); this.msg = { text: '순간 부스터!', t: 0.6, color: '#fde047' }; }
+        }
+      }
+      r.prevAccel = inp.accel;
+      if (!r.isPlayer && r.boosters > 0 && !r.drifting && r.boostT <= 0 && Math.random() < dt * 0.6) this.useBooster(r);
     }
     if (r.drifting) {
       if (!inp.drift || r.speed < 8 || spinning || r.gliding) this.endDrift(r);
@@ -803,14 +825,15 @@ export default class Kart extends GameBase {
     let turn;
     if (r.gliding) turn = steer * st.turn * 0.85;
     // 드리프트 중엔 항상 드리프트 방향으로만 돎: 안쪽 키 = 빠르게, 반대쪽 키 = 천천히 (반대로 돌거나 반대쪽으로 끌려가지 않음)
+    else if (r.drifting && KR) turn = r.driftDir * (0.62 + 0.5 * inward) * st.turn * 1.25; // 드리프터: 훨씬 크게 돌고, 반대 키로 거의 멈춤(끌기)
     else if (r.drifting) turn = r.driftDir * (0.4 + 0.3 * inward) * st.turn * 1.2;
     else turn = steer * st.turn * spF * (r.speed >= 0 ? 1 : -1) * (boosting ? 0.9 : 1);
     if (!r.grounded && !r.drifting && !r.gliding) turn *= 0.5;
     if (r.onIce && r.grounded) turn *= 0.7; // 빙판: 덜 꺾이고
     r.h -= turn * dt;
     // 미끄러짐 각 (드리프트 중 일정)
-    const slipT = r.drifting ? r.driftDir * 0.2 : 0;
-    r.slip += (slipT - r.slip) * Math.min(1, dt * 4);
+    const slipT = r.drifting ? r.driftDir * (KR ? 0.52 + 0.1 * inward : 0.2) : 0;
+    r.slip += (slipT - r.slip) * Math.min(1, dt * (KR ? 6 : 4));
     let mv = r.h + r.slip;
     // 빙판: 가는 방향이 차 방향을 천천히 따라옴 (미끄러짐)
     if (r.onIce && r.grounded) { r.iceMv = (r.iceMv ?? mv) + wrapAngle(mv - (r.iceMv ?? mv)) * Math.min(1, dt * 2.2); mv = r.iceMv; } else r.iceMv = mv;
@@ -1052,7 +1075,8 @@ export default class Kart extends GameBase {
   driftLevel(r) { return !r.drifting ? 0 : r.driftT >= DRIFT_LV[2] ? 3 : r.driftT >= DRIFT_LV[1] ? 2 : r.driftT >= DRIFT_LV[0] ? 1 : 0; }
 
   endDrift(r) {
-    const lvl = this.driftLevel(r);
+    const lvl = r.kart.kr ? 0 : this.driftLevel(r);
+    if (r.kart.kr) r.instT = r.driftT > 0.35 ? 0.5 : 0; // 드리프터는 미니 터보 대신 순간 부스터 기회
     r.drifting = false;
     if (lvl > 0) {
       // 미니 터보: 즉시 속도가 확 붙고 일정 시간 부스트
@@ -1215,7 +1239,15 @@ export default class Kart extends GameBase {
   }
 
   // ---------------- 아이템 ----------------
+  /** 드리프터 전용: 모아 둔 부스터 사용 */
+  useBooster(r) {
+    if (!(r.boosters > 0) || r.spinT > 0) return;
+    r.boosters--; r.boostT = Math.max(r.boostT, 2.6); r.turboFlash = 0.4;
+    if (r.isPlayer) { this.sound('levelup'); this.msg = { text: '🔥 부스터!', t: 0.8, color: '#67e8f9' }; }
+  }
+
   useItem(r) {
+    if (!r.item && r.kart.kr && this.phase !== 'countdown') return this.useBooster(r); // 아이템이 없으면 아이템 키 = 부스터
     if (!r.item || r.roll > 0 || r.spinT > 0 || this.phase === 'countdown') return;
     const type = r.item;
     const fx = Math.sin(r.h), fz = Math.cos(r.h);
@@ -1716,8 +1748,14 @@ export default class Kart extends GameBase {
     // 속도
     shadowText(`${Math.round(Math.max(0, p.speed) * 3.6 * 1.6)}`, W - 16, H - 30, '900 28px system-ui, sans-serif', p.boostT > 0 ? '#fdba74' : '#fff', 'right');
     shadowText('km/h', W - 16, H - 14, '700 11px system-ui, sans-serif', '#cbd5e1', 'right');
-    // 드리프트 게이지: 파랑 → 주황 → 보라
-    if (p.drifting) {
+    // 드리프터: 부스터 게이지 + 모은 부스터
+    if (p.kart.kr) {
+      const gx = W - 150, gy = H - 74;
+      ctx.fillStyle = 'rgba(15,23,42,.6)'; roundRect(ctx, gx - 4, gy - 4, 142, 16, 8);
+      ctx.fillStyle = 'rgba(148,163,184,.25)'; ctx.fillRect(gx, gy, 134, 8);
+      ctx.fillStyle = '#22d3ee'; ctx.fillRect(gx, gy, 134 * clamp(p.kGauge ?? 0, 0, 1), 8);
+      shadowText(`${'🔥'.repeat(p.boosters ?? 0) || '부스터 없음'}${p.boosters && !p.item ? ' (아이템 키)' : ''}`, W - 16, gy - 8, '800 12px system-ui, sans-serif', '#67e8f9', 'right');
+    } else if (p.drifting) {
       const lvl = this.driftLevel(p);
       const gx = W - 150, gy = H - 74;
       ctx.fillStyle = 'rgba(15,23,42,.6)'; roundRect(ctx, gx - 4, gy - 4, 142, 16, 8);

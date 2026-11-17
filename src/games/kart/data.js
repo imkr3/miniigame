@@ -21,6 +21,7 @@ export const KARTS = [
   { id: 'buggy',   name: '버기',      desc: '가속↑ 풀밭에서 덜 느려짐', speed: -1, accel: 2, weight: -1, handling: 1, offroad: true },
   { id: 'rocket',  name: '로켓',      desc: '최고 속도↑↑ 가속↓↓ (직선 최강)', speed: 2, accel: -2, weight: 0, handling: -1 },
   { id: 'bubble',  name: '버블',      desc: '핸들링↑↑ 가속↑ 가볍고 느림', speed: -1, accel: 1, weight: -2, handling: 2 },
+  { id: 'drifter', name: '드리프터',  desc: '끌기 드리프트 전용: 크게 미끄러지며 게이지를 채워 부스터 사용', speed: 1, accel: 0, weight: -1, handling: 1, kr: true },
   { id: 'tank',    name: '탱크',      desc: '무게↑ 부딪혀도 안 밀림', speed: 1, accel: -1, weight: 2, handling: -1 },
 ];
 

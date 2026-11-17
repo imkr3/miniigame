@@ -97,6 +97,15 @@ function kartParts(kart, color) {
     for (const z of [-0.9, -0.3, 0.3, 0.9]) sym((s) => paint.push(part(sphere(0.045, 6, 5), CHROME, s * 0.815, 0.86, z)));                                   // 리벳
     sym((s) => paint.push(part(roundedBox(0.06, 0.12, 1.7, 0.03, 2), WHITE, s * 0.3, 1.105, -0.05, 0, 0, HALF)));
     headlight(0.56, 0.9, 1.25, 0.1); taillight(0.56, 0.9, -1.26);
+  } else if (kart.id === 'drifter') { // 드리프터: 낮고 넓은 쐐기 차체 + 둥근 지붕 + 뒤 쌍발 부스터
+    wheelR = 0.37; wheelW = 0.36; base = 0.98; track = 0.86; seatY = 0.7; exY = 0.52; exZ = -1.5; exX = 0.3;
+    paint.push(part(roundedBox(1.42, 0.3, 2.5, 0.14, 3), color, 0, 0.44, 0));
+    paint.push(part(ellipsoid(0.62, 0.2, 0.7), color, 0, 0.52, 0.85));
+    paint.push(part(roundedBox(1.46, 0.08, 2.2, 0.04, 2), WHITE, 0, 0.34, 0));                            // 옆 스커트
+    sym((s) => paint.push(part(roundedBox(0.12, 0.02, 2.0, 0.01, 1), WHITE, s * 0.36, 0.595, 0)));          // 줄무늬
+    sym((s) => { paint.push(part(cyl(0.15, 0.17, 0.6, 16), CHROME, s * 0.3, 0.56, -1.2, HALF)); glow.push(part(ellipsoid(0.11, 0.11, 0.03, 12, 8), 0x67e8f9, s * 0.3, 0.56, -1.51)); }); // 부스터
+    paint.push(part(roundedBox(1.5, 0.06, 0.34, 0.03, 2), mix(color, 0x000000, 0.35), 0, 0.98, -1.12)); sym((s) => matte.push(part(roundedBox(0.06, 0.36, 0.2, 0.03, 2), DARK, s * 0.55, 0.8, -1.12)));
+    headlight(0.48, 0.5, 1.2, 0.08); taillight(0.56, 0.5, -1.26);
   } else if (kart.id === 'rocket') { // 로켓: 흰 동체 + 색 코 + 꼬리 날개 3장
     wheelR = 0.36; wheelW = 0.3; base = 1.0; track = 0.84; seatY = 0.72; exY = 0.5; exZ = -1.55; exX = 0.16;
     paint.push(part(lathe([[0.05, -1.45], [0.34, -1.35], [0.5, -0.8], [0.5, 0.1], [0.36, 0.95], [0.14, 1.55], [0.01, 1.8]], 20), WHITE, 0, 0.52, 0, HALF, 0, 0, 1.15, 1, 0.8));
