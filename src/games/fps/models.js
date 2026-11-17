@@ -103,7 +103,7 @@ export function animateSoldier(m, a, dt, time) {
     if (a.deadT > 3) m.root.position.y = a.y - (a.deadT - 3) * 0.4; // 천천히 가라앉아 사라짐
     return;
   }
-  m.root.visible = true;
+  m.root.visible = !(a.protectT > 0 && Math.floor(time * 12) % 2); // 부활 보호 중에는 깜빡임 (쏴도 피해가 안 들어감을 알림)
   m.body.rotation.x = 0;
   const sp = Math.hypot(a.vx ?? 0, a.vz ?? 0), k = Math.min(1, sp / 4);
   m.phase += sp * dt * 2.4;

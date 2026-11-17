@@ -386,7 +386,7 @@ export default class Fps extends GameBase {
     for (const a of this.actors) this.dyn.remove(a.model.root);
     for (const g of this.grenades) this.dyn.remove(g.mesh);
     for (const p of this.pickups) this.dyn.remove(p.mesh);
-    this.actors = []; this.grenades = []; this.pickups = []; this.feed = []; this.dmgInd = []; this.player = null;
+    this.actors = []; this.grenades = []; this.pickups = []; this.feed = []; this.dmgInd = []; this.dmgNums = []; this.player = null;
   }
 
   makeActor(o) {
@@ -751,6 +751,7 @@ export default class Fps extends GameBase {
   damage(v, amount, by, wid, head) {
     if (!v.alive || v.protectT > 0 || this.matchOver) return;
     amount = Math.round(amount);
+    if (by.isPlayer && v !== by) { (this.dmgNums ??= []).push({ x: v.x, y: v.y + 1.9 * v.scale, z: v.z, n: amount, head, t: 0.7 }); if (this.dmgNums.length > 12) this.dmgNums.shift(); }
     if (by.isPlayer && v !== by) { this.hitT = 0.18; this.hitKill = false; sfx.tone(head ? 1900 : 1300, head ? 1900 : 1300, 0.035, 0.05, 'square'); }
     if (v.remote) { this.multi?.net.relay({ k: 'hit', to: v.id, by: by.id, d: amount, w: wid, h: head ? 1 : 0 }); return; }
     v.hp -= amount; v.lastHurtT = this.time; v.lastHurtBy = by;
@@ -931,7 +932,8 @@ export default class Fps extends GameBase {
     this.xp += st.xp; try { localStorage.setItem(XP_KEY, String(this.xp)); } catch { /* 저장 불가 무시 */ }
     const after = rankOf(this.xp);
     const acc = st.shots ? Math.round((st.hits / st.shots) * 100) : 0;
-    const info = `${this.mode.zombie ? `웨이브 ${this.wave} · ` : this.mode.teams ? `${TEAM_NAME[p.team]} ${this.teamScore[p.team]} : ${this.teamScore[1 - p.team]} · ` : ''}${st.kills}킬 ${st.deaths}데스 · 헤드샷 ${st.head} · 명중률 ${acc}% · 최고 연속 ${st.bestStreak} · 경험치 +${st.xp}${after.idx > before.idx ? ` · 🎖️ ${after.name} 진급!` : ` (${after.name})`}`;
+    const mvp = this.mode.zombie ? null : [...this.actors].filter((a) => !a.zombie).sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)[0];
+    const info = `${this.mode.zombie ? `웨이브 ${this.wave} · ` : this.mode.teams ? `${TEAM_NAME[p.team]} ${this.teamScore[p.team]} : ${this.teamScore[1 - p.team]} · ` : ''}${st.kills}킬 ${st.deaths}데스 · 헤드샷 ${st.head} · 명중률 ${acc}% · 최고 연속 ${st.bestStreak}${mvp ? ` · MVP ${mvp.isPlayer ? '나!' : mvp.name} (${mvp.kills}킬)` : ''} · 경험치 +${st.xp}${after.idx > before.idx ? ` · 🎖️ ${after.name} 진급!` : ` (${after.name})`}`;
     if (this.multi) { if (this.multi.isHost) this.multi.net.end(); this.gameOver(title, info, { multi: true }); } else this.gameOver(title, info);
   }
 
@@ -1040,6 +1042,14 @@ export default class Fps extends GameBase {
       ctx.globalAlpha = 1; ctx.lineCap = 'butt';
       if (p.reloadT > 0) { ctx.strokeStyle = '#fde68a'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(cx, cy, 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - p.reloadT / p.reloadDur)); ctx.stroke(); text('재장전', cx, cy + 32, F(9), '#fde68a', 'center'); }
     }
+    // 준 피해 숫자: 맞은 적 머리 위로 떠오름 (헤드샷은 노랗고 크게)
+    for (const d of this.dmgNums ?? []) {
+      if ((d.t -= 1 / 60) <= 0) continue;
+      const s = this.project(d.x, d.y + (0.7 - d.t) * 0.9, d.z); if (!s) continue;
+      ctx.globalAlpha = Math.min(1, d.t * 3);
+      text(String(d.n), s[0], s[1], F(d.head ? 13 : 10), d.head ? '#fde047' : '#fff', 'center');
+    }
+    ctx.globalAlpha = 1;
     // 명중 표시
     if (this.hitT > 0) {
       const k = this.hitT / (this.hitKill ? 0.3 : 0.18), g = 5 + (1 - k) * 4, l = this.hitKill ? 8 : 5;
