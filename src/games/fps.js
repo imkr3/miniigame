@@ -8,7 +8,7 @@ import { World } from './fps/world.js';
 import { buildSoldier, setSoldierGun, animateSoldier, ViewModel, Effects, buildGrenadeMesh, buildPickup } from './fps/models.js';
 import { newAI, updateBot, updateZombie, alertBots } from './fps/bots.js';
 
-const W = 640, H = 360;
+let W = 640; const H = 360; // W 는 화면 비율에 따라 640~800
 const EYE = 1.6, EYE_CROUCH = 1.05, BODY_H = 1.8, BODY_H_CROUCH = 1.25, RADIUS = 0.32;
 const WALK = 4.7, SPRINT = 1.45, JUMP_V = 7.2;
 const RESPAWN = 4, PROTECT = 2.5, REGEN_DELAY = 5, REGEN_RATE = 18;
@@ -67,12 +67,17 @@ const CSS = `
 .fps-hint{font-size:10px;color:#9ca3af;text-align:center;margin-top:5px}
 .fps-touch{position:absolute;inset:0;touch-action:none;user-select:none;-webkit-user-select:none}
 .fps-touch[hidden]{display:none}
-.fps-touch button{all:unset;position:absolute;width:11%;aspect-ratio:1;max-width:54px;border-radius:50%;background:rgba(20,24,34,.4);border:1.5px solid rgba(255,255,255,.32);color:#fff;font:700 clamp(8px,2.2vw,12px) system-ui,sans-serif;text-align:center;display:flex;align-items:center;justify-content:center;touch-action:none}
+.fps-touch button{all:unset;position:absolute;width:clamp(48px,8.5vw,66px);aspect-ratio:1;border-radius:50%;background:rgba(20,24,34,.4);border:1.5px solid rgba(255,255,255,.32);color:#fff;font:700 clamp(10px,1.8vw,13px) system-ui,sans-serif;text-align:center;display:flex;align-items:center;justify-content:center;touch-action:none;backdrop-filter:blur(2px)}
 .fps-touch button.on{background:rgba(59,130,246,.6)}
-.fps-touch .f-fire{right:3%;bottom:24%;width:15%;max-width:76px;background:rgba(220,60,60,.42)}
-.fps-touch .f-ads{right:4.5%;bottom:60%}.fps-touch .f-jump{right:21%;bottom:10%}.fps-touch .f-reload{right:21%;bottom:40%}
-.fps-touch .f-crouch{right:35%;bottom:10%}.fps-touch .f-switch{right:20%;top:20%}.fps-touch .f-nade{right:34%;top:20%}
-.fps-stick{position:absolute;width:22%;max-width:120px;aspect-ratio:1;border-radius:50%;border:2px solid rgba(255,255,255,.3);background:rgba(20,24,34,.25);transform:translate(-50%,-50%);pointer-events:none}
+.fps-touch .f-fire{right:3.5%;bottom:20%;width:clamp(72px,13vw,104px);background:rgba(220,60,60,.45);font-size:clamp(12px,2.2vw,16px)}
+.fps-touch .f-fire2{left:3%;top:30%;width:clamp(56px,9.5vw,74px);background:rgba(220,60,60,.4)}
+.fps-touch .f-fire2[hidden]{display:none}
+.fps-touch .f-ads{right:5%;bottom:calc(20% + clamp(72px,13vw,104px) + 10px)}
+.fps-touch .f-reload{right:calc(3.5% + clamp(72px,13vw,104px) + 12px);bottom:calc(20% + clamp(72px,13vw,104px) * .55)}
+.fps-touch .f-jump{right:calc(3.5% + clamp(72px,13vw,104px) * .55);bottom:3%}
+.fps-touch .f-crouch{right:calc(3.5% + clamp(72px,13vw,104px) * .55 + clamp(48px,8.5vw,66px) + 12px);bottom:3%}
+.fps-touch .f-switch{right:3.5%;top:4%}.fps-touch .f-nade{right:calc(3.5% + clamp(48px,8.5vw,66px) + 12px);top:4%}
+.fps-stick{position:absolute;width:24%;max-width:140px;aspect-ratio:1;border-radius:50%;border:2px solid rgba(255,255,255,.3);background:rgba(20,24,34,.25);transform:translate(-50%,-50%);pointer-events:none}
 .fps-stick i{position:absolute;left:50%;top:50%;width:42%;aspect-ratio:1;border-radius:50%;background:rgba(255,255,255,.5);transform:translate(-50%,-50%)}
 `;
 
@@ -95,10 +100,14 @@ export default class Fps extends GameBase {
     sprint: '달리기', crouch: '앉기', reload: '재장전', w1: '주무기', w2: '권총', w3: '칼', w4: '수류탄', w5: '(부활 대기 중) 주무기 5', nade: '수류탄 바로 던지기', melee: '칼 바로 휘두르기', last: '이전 무기', score: '점수판',
   };
   static landscape = true;
+  static flexWidth = [16 / 9, 2.25];
+  static hideScore = true;
   static settings = [
     { id: 'autoFs', label: '모바일: 시작하면 가로 전체화면', type: 'toggle', default: true, tip: '아이폰 사파리처럼 전체화면을 지원하지 않는 기기에서는 폰을 가로로 돌려 주세요' },
     { id: 'difficulty', label: '봇 실력', type: 'select', default: 'normal', options: [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']] },
-    { id: 'sens', label: '조준 감도', type: 'range', min: 1, max: 20, default: 8 },
+    { id: 'sens', label: '조준 감도 (마우스·키)', type: 'range', min: 1, max: 20, default: 8 },
+    { id: 'touchSens', label: '조준 감도 (터치)', type: 'range', min: 1, max: 20, default: 10 },
+    { id: 'leftFire', label: '모바일 왼쪽 사격 버튼', type: 'toggle', default: true, tip: '왼손 엄지로도 쏠 수 있게 왼쪽에 사격 버튼 하나 더' },
     { id: 'fov', label: '시야각', type: 'range', min: 60, max: 100, step: 5, default: 75, unit: '°' },
     { id: 'autoFire', label: '자동 사격 (조준선이 적에 닿으면)', type: 'select', default: 'touch', options: [['touch', '모바일만'], ['always', '항상'], ['never', '끄기']] },
     { id: 'team', label: '팀 인원 (팀 데스매치)', type: 'range', min: 2, max: 6, default: 5, unit: '명' },
@@ -152,6 +161,7 @@ export default class Fps extends GameBase {
     if (r.width) this.onResize(r.width, r.height);
   }
   onResize(w, h) {
+    W = this.width;
     if (!this.renderer) return;
     const q = { low: 1, normal: 1.5, high: 2 }[this.cfg?.quality ?? 'normal'] ?? 1.5;
     this.maxRatio = Math.min(window.devicePixelRatio || 1, q);
@@ -232,7 +242,7 @@ export default class Fps extends GameBase {
     const t = this.$touch = document.createElement('div');
     t.className = 'fps-touch'; t.hidden = true;
     t.innerHTML = `<div class="fps-stick" hidden><i></i></div>
-      <button class="f-fire" data-b="fire">사격</button><button class="f-ads" data-b="ads">조준</button><button class="f-jump" data-b="jump">점프</button>
+      <button class="f-fire" data-b="fire">사격</button><button class="f-fire2" data-b="fire2">사격</button><button class="f-ads" data-b="ads">조준</button><button class="f-jump" data-b="jump">점프</button>
       <button class="f-reload" data-b="reload">장전</button><button class="f-crouch" data-b="crouch">앉기</button><button class="f-switch" data-b="switch">무기</button><button class="f-nade" data-b="nade">수류탄</button>`;
     this.$screen.insertBefore(t, this.$overlay);
     this.$stick = t.querySelector('.fps-stick');
@@ -300,6 +310,7 @@ export default class Fps extends GameBase {
       return el;
     };
     btn('fire', () => { tc.fire = true; }, () => { tc.fire = false; });
+    btn('fire2', () => { tc.fire = true; }, () => { tc.fire = false; });
     btn('jump', () => { this.jumpQ = true; });
     btn('reload', () => { if (this.player?.alive) this.startReload(this.player); else this.nextPrimary(1); });
     btn('switch', () => { if (this.player?.alive) this.cycleWeapon(1); else this.nextPrimary(1); });
@@ -318,7 +329,7 @@ export default class Fps extends GameBase {
     });
     T.addEventListener('pointermove', (e) => {
       if (e.pointerId === tc.stickId) {
-        const R = Math.max(30, T.clientWidth * 0.09), dx = clamp((e.clientX - tc.sx) / R, -1, 1), dy = clamp((e.clientY - tc.sy) / R, -1, 1);
+        const R = Math.max(36, T.clientWidth * 0.08), dx = clamp((e.clientX - tc.sx) / R, -1, 1), dy = clamp((e.clientY - tc.sy) / R, -1, 1);
         tc.mx = dx; tc.mz = dy;
         this.$stick.firstElementChild.style.transform = `translate(calc(-50% + ${dx * R * 0.6}px), calc(-50% + ${dy * R * 0.6}px))`;
       } else if (e.pointerId === tc.lookId) { this.look.dx += (e.clientX - tc.lx) * 2.2; this.look.dy += (e.clientY - tc.ly) * 2.2; tc.lx = e.clientX; tc.ly = e.clientY; }
@@ -520,7 +531,7 @@ export default class Fps extends GameBase {
     const p = this.player, tm = this.touchMode, tc = this.touch;
     // 조준
     const zoom = 1 + (this.curDef(p).zoom - 1 || 0) * this.adsK;
-    const sens = (this.cfg.sens ?? 8) * 0.00028 / Math.pow(zoom, 0.85) * (tm && this.aimOnEnemy ? 0.55 : 1);
+    const sens = (tm ? (this.cfg.touchSens ?? 10) * 0.8 : (this.cfg.sens ?? 8)) * 0.00028 / Math.pow(zoom, 0.85) * (tm && this.aimOnEnemy ? 0.55 : 1);
     const kx = (this.isDown('lookr') ? 1 : 0) - (this.isDown('lookl') ? 1 : 0), ky = (this.isDown('lookd') ? 1 : 0) - (this.isDown('looku') ? 1 : 0);
     const ldx = this.look.dx + kx * 900 * dt, ldy = this.look.dy + ky * 600 * dt;
     this.lookDX = ldx; this.lookDY = ldy; this.look.dx = this.look.dy = 0;
@@ -973,6 +984,7 @@ export default class Fps extends GameBase {
     const showMenu = this.phase === 'menu' && this.state === 'playing', showTouch = this.phase === 'play' && this.state === 'playing' && this.touchMode;
     if (this.$menu.hidden === showMenu) this.$menu.hidden = !showMenu;
     if (this.$touch.hidden === showTouch) this.$touch.hidden = !showTouch;
+    const f2 = this.$touch.querySelector('.f-fire2'); if (f2 && f2.hidden === !!this.cfg.leftFire) f2.hidden = !this.cfg.leftFire;
     this.idleSkip = ((this.idleSkip ?? 0) + 1) % 3;
     const idle = this.state !== 'playing';
     if ((!idle || this.idleSkip === 0) && !this.glLost) {
@@ -1122,7 +1134,7 @@ export default class Fps extends GameBase {
     text(String(Math.ceil(p.hp)), hx + 30, hy + 5, F(17), '#fff', 'right'); text('체력', hx, hy - 8, F(7, 700), '#9ca3af');
     if (p.protectT > 0 && p.alive) text('부활 보호', hx + 38, hy - 8, F(8), '#93c5fd');
     // 탄약 · 무기
-    const ax = W - 12, ay = H - 14;
+    const ax = this.touchMode ? 340 : W - 12, ay = H - 14; // 모바일: 오른쪽 아래는 버튼 자리라 체력 옆으로
     ctx.fillStyle = 'rgba(10,14,22,.6)'; ctx.beginPath(); ctx.roundRect(ax - 162, ay - 34, 166, 44, 8); ctx.fill();
     if (def.melee) text('—', ax - 6, ay, F(20), '#fff', 'right');
     else if (def.throw) text(`× ${p.nades}`, ax - 6, ay, F(20), '#fff', 'right');

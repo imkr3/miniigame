@@ -10,7 +10,7 @@ import { buildFeatures, animateFeatures, updateHazards, updateRings, onIce } fro
 // - 캐릭터 8 · 카트 4 · 트랙 5, 모드: 레이스 / 그랑프리(5경기) / 타임 어택(고스트)
 // - 드리프트(점프 후 방향키) → 불꽃 색(파랑→주황→보라)에 따라 미니 터보
 // - 아이템 박스: 순위가 낮을수록 강한 아이템, 출발 직전 가속 = 로켓 스타트
-const W = 640, H = 360;
+let W = 640; const H = 360; // W 는 화면 비율에 따라 640~800 으로 바뀜 (가로 화면을 꽉 채우도록)
 const HOP_V = 4.4, GRAV = 18;
 const DRIFT_LV = [0.6, 1.2, 1.9];             // 드리프트 단계 시간
 // 아이템에 맞았을 때: 회전 시간 · 남는 속도 비율 · 튀어 오르는 세기
@@ -74,7 +74,7 @@ export default class Kart extends GameBase {
     title: '카트 레이스',
     description: '캐릭터와 카트를 골라 8명이 겨루는 3D 레이스! 그랑프리·타임 어택(고스트) 모드. 드리프트 미니 터보, 점프대 트릭, 글라이더, 지름길, 아이템으로 역전을 노리세요.',
     controls: '↑ 가속 · ↓ 브레이크 · ←→ 조향 · Space/Shift 드리프트(누른 채 꺾기, 떼면 미니 터보) · 점프대에서 Space = 트릭 · X/E 아이템',
-    touchControls: '자동 가속 · ◀▶ 조향 · 드리프트 버튼(누른 채 꺾기) · 아이템 · 브레이크 · 📱 가로 화면 추천',
+    touchControls: '자동 가속 · ◀▶ 버튼 또는 화면을 누른 채 좌우로 끌어 조향 · 드리프트 버튼(누른 채 꺾기) · 아이템 · 브레이크 · 📱 가로 화면 추천',
   };
   static bindings = {
     left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'],
@@ -82,6 +82,9 @@ export default class Kart extends GameBase {
   };
   static actionLabels = { up: '가속', down: '브레이크 / 후진', left: '왼쪽', right: '오른쪽', action: '점프·드리프트 / 결정', item: '아이템 사용' };
   static landscape = true;
+  static flexWidth = [16 / 9, 2.25];
+  static padOverlay = true;
+  static hideScore = true;
   static settings = [
     { id: 'autoFs', label: '모바일: 시작하면 가로 전체화면', type: 'toggle', default: true, tip: '아이폰 사파리처럼 전체화면을 지원하지 않는 기기에서는 폰을 가로로 돌려 주세요' },
     { id: 'difficulty', label: '난이도 (상대 실력)', type: 'select', default: 'normal', options: [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']] },
@@ -101,6 +104,17 @@ export default class Kart extends GameBase {
     super(container, { width: W, height: H, ...opts });
     this.clearColor = null; // 2D 캔버스는 투명 (HUD만), 아래에 3D 캔버스
     this.$screen.addEventListener('pointerdown', () => { this.pointerStamp = performance.now(); }); // 엔진의 탭 처리(pointerup)보다 먼저 기록
+    // 드래그 조향: 경주 중 화면을 누른 채 좌우로 끌면 그만큼 아날로그로 꺾음 (손을 떼면 0)
+    const drag = { id: null, x: 0 };
+    this.$screen.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse' && this.phase && this.phase !== 'select' && drag.id === null) { drag.id = e.pointerId; drag.x = e.clientX; this.dragSteer = 0; } });
+    this.$screen.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== drag.id) return;
+      const R = Math.max(40, this.$screen.clientWidth * 0.07), dx = e.clientX - drag.x;
+      if (Math.abs(dx) > R) drag.x = e.clientX - Math.sign(dx) * R; // 기준점이 손가락을 따라옴 → 반대로 끌면 바로 반대로 꺾임
+      this.dragSteer = clamp((e.clientX - drag.x) / R, -1, 1);
+    });
+    const end = (e) => { if (e.pointerId === drag.id) { drag.id = null; this.dragSteer = 0; } };
+    this.$screen.addEventListener('pointerup', end); this.$screen.addEventListener('pointercancel', end);
     this.sel = { mode: 0, char: 0, kart: 0, track: 0, row: 1 };
     this.setup3D();
   }
@@ -143,6 +157,7 @@ export default class Kart extends GameBase {
   }
 
   onResize(w, h) {
+    W = this.width;
     if (!this.renderer) return;
     const q = { low: 1, normal: 1.5, high: 2 }[this.cfg?.quality ?? 'normal'] ?? 1.5;
     this.maxRatio = Math.min(window.devicePixelRatio || 1, q);
@@ -642,7 +657,8 @@ export default class Kart extends GameBase {
     return {
       accel: auto ? !this.isDown('down') : this.isDown('up'),
       brake: this.isDown('down'),
-      steer: (this.isDown('right') ? 1 : 0) - (this.isDown('left') ? 1 : 0),
+      // 키·버튼 + 화면 드래그 조향(모바일: 화면 아무 곳이나 누른 채 좌우로 끌면 끈 만큼 꺾임)
+      steer: clamp((this.isDown('right') ? 1 : 0) - (this.isDown('left') ? 1 : 0) + (this.dragSteer ?? 0), -1, 1),
       drift: this.isDown('action'),
       hop: p.hopReq,
     };
@@ -1754,18 +1770,20 @@ export default class Kart extends GameBase {
     }
     ctx.textBaseline = 'alphabetic';
     // 속도
-    shadowText(`${Math.round(Math.max(0, p.speed) * 3.6 * 1.6)}`, W - 16, H - 30, '900 28px system-ui, sans-serif', p.boostT > 0 ? '#fdba74' : '#fff', 'right');
-    shadowText('km/h', W - 16, H - 14, '700 11px system-ui, sans-serif', '#cbd5e1', 'right');
+    // 모바일: 아래 모서리는 버튼 자리라 속도·게이지·미니맵을 위쪽으로
+    const TM = this.touchMode, spY = TM ? 222 : H - 30;
+    shadowText(`${Math.round(Math.max(0, p.speed) * 3.6 * 1.6)}`, W - 16, spY, '900 28px system-ui, sans-serif', p.boostT > 0 ? '#fdba74' : '#fff', 'right');
+    shadowText('km/h', W - 16, spY + 16, '700 11px system-ui, sans-serif', '#cbd5e1', 'right');
     // 드리프터: 부스터 게이지 + 모은 부스터
     if (p.kart.kr) {
-      const gx = W - 150, gy = H - 74;
+      const gx = TM ? W / 2 - 67 : W - 150, gy = TM ? 92 : H - 74, lx = TM ? W / 2 + 67 : W - 16;
       ctx.fillStyle = 'rgba(15,23,42,.6)'; roundRect(ctx, gx - 4, gy - 4, 142, 16, 8);
       ctx.fillStyle = 'rgba(148,163,184,.25)'; ctx.fillRect(gx, gy, 134, 8);
       ctx.fillStyle = '#22d3ee'; ctx.fillRect(gx, gy, 134 * clamp(p.kGauge ?? 0, 0, 1), 8);
-      shadowText(`${'🔥'.repeat(p.boosters ?? 0) || '부스터 없음'}${p.boosters && !p.item ? ' (아이템 키)' : ''}`, W - 16, gy - 8, '800 12px system-ui, sans-serif', '#67e8f9', 'right');
+      shadowText(`${'🔥'.repeat(p.boosters ?? 0) || '부스터 없음'}${p.boosters && !p.item ? ' (아이템 키)' : ''}`, lx, gy - 8, '800 12px system-ui, sans-serif', '#67e8f9', 'right');
     } else if (p.drifting) {
       const lvl = this.driftLevel(p);
-      const gx = W - 150, gy = H - 74;
+      const gx = TM ? W / 2 - 67 : W - 150, gy = TM ? 92 : H - 74, lx = TM ? W / 2 + 67 : W - 16;
       ctx.fillStyle = 'rgba(15,23,42,.6)'; roundRect(ctx, gx - 4, gy - 4, 142, 16, 8);
       const segs = [DRIFT_LV[0], DRIFT_LV[1] - DRIFT_LV[0], DRIFT_LV[2] - DRIFT_LV[1]];
       let x = gx, t = p.driftT;
@@ -1775,7 +1793,7 @@ export default class Kart extends GameBase {
         ctx.fillStyle = hex(SPARK_COLORS[i + 1]); ctx.fillRect(x, gy, (w - 2) * clamp(t / len, 0, 1), 8);
         t -= len; x += w;
       });
-      shadowText(lvl ? TURBO_NAMES[lvl].replace('!', ' 준비') : '드리프트 중…', W - 16, gy - 8, '800 12px system-ui, sans-serif', lvl ? hex(SPARK_COLORS[lvl]) : '#fff', 'right');
+      shadowText(lvl ? TURBO_NAMES[lvl].replace('!', ' 준비') : '드리프트 중…', lx, gy - 8, '800 12px system-ui, sans-serif', lvl ? hex(SPARK_COLORS[lvl]) : '#fff', 'right');
     }
     // 날아오는 공격 경고: 나를 쫓는 추적 로켓·냉동탄, 뒤에서 다가오는 회오리 → 아래쪽에 깜빡이는 표시 + 남은 거리
     if (this.phase === 'race' && !p.finished) {
@@ -1866,6 +1884,8 @@ export default class Kart extends GameBase {
 
   drawMinimap(ctx) {
     const m = this.mini, tr = this.track, cx = 70, cy = H - 70;
+    ctx.save();
+    if (this.touchMode) { ctx.translate(W - 60, 140); ctx.scale(0.78, 0.78); ctx.translate(-cx, -cy); } // 모바일: 오른쪽 위로 (왼쪽 아래는 조향 버튼 자리)
     ctx.fillStyle = 'rgba(15,23,42,.45)'; ctx.beginPath(); ctx.arc(cx, cy, 62, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 4; ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -1887,5 +1907,6 @@ export default class Kart extends GameBase {
       ctx.beginPath(); ctx.arc(x, y, r.isPlayer ? 5 : r.human ? 4.5 : 3, 0, Math.PI * 2); ctx.fill();
       if (r.isPlayer) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
     }
+    ctx.restore();
   }
 }

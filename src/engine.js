@@ -136,6 +136,20 @@ const CSS = `
 .mg-btns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .mg-btns button{min-width:64px;height:64px;padding:0 10px;font-size:16px;border-radius:50px;white-space:nowrap}
 .mg-btns button.mg-wide{min-width:120px;height:72px}
+/* 버튼을 게임 화면 위에 겹치는 게임 (카트): 반투명 큰 원형 버튼 */
+.mg-ovpad.mg-touch .mg-pad{position:absolute;left:0;right:0;bottom:0;z-index:4;pointer-events:none;align-items:flex-end;
+  padding:10px max(14px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}
+.mg-ovpad .mg-pad button{pointer-events:auto;background:rgba(20,24,34,.42);border:1.5px solid rgba(255,255,255,.32);box-shadow:none;color:#fff;backdrop-filter:blur(2px)}
+.mg-ovpad .mg-pad button.mg-on{background:rgba(59,130,246,.55);transform:scale(.95);box-shadow:none}
+.mg-ovpad .mg-pad button.mg-primary{background:rgba(59,130,246,.62)}
+.mg-ovpad .mg-lr{gap:14px}.mg-ovpad .mg-lr button{width:clamp(64px,11vw,92px);height:clamp(64px,11vw,92px);border-radius:50%;font-size:24px}
+.mg-ovpad .mg-btns{flex-direction:row;align-items:flex-end;gap:12px}
+.mg-ovpad .mg-btns button{width:clamp(56px,9vw,74px);min-width:0;height:clamp(56px,9vw,74px);border-radius:50%;padding:0;font-size:13px}
+.mg-ovpad .mg-btns button.mg-wide{width:clamp(76px,13vw,104px);height:clamp(76px,13vw,104px);font-size:15px}
+/* 점수가 의미 없는 게임 · 가로 게임: 위쪽 바를 얇게 */
+.mg-nosc .mg-hud>span:not(.mg-info){display:none}
+.mg-wide.mg-touch .mg-hud{padding:3px 8px;gap:6px}.mg-wide.mg-touch .mg-hud button{height:26px;width:30px;font-size:13px}
+.mg-wide.mg-touch .mg-hud .mg-info{margin-left:auto;font-size:12px}
 /* 가로 모드(폰 눕힘): 버튼을 화면 양옆으로 */
 .mg-land{display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto 1fr;grid-template-areas:"hud hud hud" "pl stage pr"}
 .mg-land .mg-hud{grid-area:hud;padding-left:max(14px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}
@@ -220,6 +234,12 @@ export class GameBase {
   static mouseClick = null;
   /** 가로 화면이 어울리는 게임 (카트·FPS): 모바일에서 가로 전체화면 안내·자동 전환 */
   static landscape = false;
+  /** [최소, 최대] 가로세로 비율: 화면 비율에 맞춰 논리 너비를 넓힘 (3D 게임이 가로 화면을 꽉 채우도록). null = 고정 */
+  static flexWidth = null;
+  /** 모바일 버튼을 게임 화면 위에 반투명하게 겹쳐 놓음 (옆에 따로 두지 않음) */
+  static padOverlay = false;
+  /** 위쪽 바의 점수·최고 점수 숨김 (점수가 의미 없는 게임) */
+  static hideScore = false;
 
   /**
    * @param {HTMLElement} container 게임을 붙일 요소
@@ -475,7 +495,8 @@ export class GameBase {
 
   _buildDom(container, maxWidth) {
     const root = document.createElement('div');
-    root.className = 'mg-root' + (this.fit ? ' mg-fit' : '');
+    const C0 = this.constructor;
+    root.className = 'mg-root' + (this.fit ? ' mg-fit' : '') + (C0.padOverlay ? ' mg-ovpad' : '') + (C0.hideScore ? ' mg-nosc' : '') + (C0.landscape ? ' mg-wide' : '');
     this._maxW = `${maxWidth}px`;
     if (!this.fit) root.style.maxWidth = this._maxW;
     root.innerHTML = `
@@ -771,12 +792,14 @@ export class GameBase {
     // 가로 게임을 폰 세로로 들고 있으면 '가로 전체화면' 안내
     const portrait = this.touchMode && this.constructor.landscape && this.root.clientHeight > this.root.clientWidth && fsElement() !== this.root;
     if (this.$rotate && this.$rotate.hidden === portrait) this.$rotate.hidden = !portrait;
-    // 폰을 눕혔을 때는 버튼을 양옆으로 배치
-    const land = this.fit && this.touchMode && this.root.clientWidth > this.root.clientHeight * 1.15;
+    // 폰을 눕혔을 때는 버튼을 양옆으로 배치 (버튼을 화면 위에 겹치는 게임은 제외)
+    const land = this.fit && this.touchMode && !this.constructor.padOverlay && this.root.clientWidth > this.root.clientHeight * 1.15;
     if (land !== this.root.classList.contains('mg-land')) this.root.classList.toggle('mg-land', land);
     const availW = this.$stage.clientWidth;
     const availH = this.fit ? this.$stage.clientHeight : Infinity;
     if (!availW || !availH) return;
+    const fw = this.constructor.flexWidth;
+    if (fw && isFinite(availH)) this.width = Math.round(this.height * Math.max(fw[0], Math.min(fw[1], availW / availH)));
     const scale = Math.min(availW / this.width, availH / this.height);
     const w = Math.floor(this.width * scale), h = Math.floor(this.height * scale);
     this.$screen.style.width = `${w}px`;
