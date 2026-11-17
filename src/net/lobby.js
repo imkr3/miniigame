@@ -25,6 +25,9 @@ const CSS = `
 .mg-lobby .mg-tag{font-size:11px;padding:2px 8px;border-radius:999px;background:#334155;color:#cbd5e1;margin-left:6px}
 .mg-lobby .mg-tag.mg-ok{background:#166534;color:#bbf7d0}
 .mg-lobby .mg-err{color:#fca5a5;font-size:13px;margin:8px 0 0}
+.mg-lobby .mg-help{font-size:12px;line-height:1.5;color:#cbd5e1;background:rgba(59,130,246,.12);border-radius:10px;padding:8px 10px;margin:10px 0 0}
+.mg-lobby .mg-help b{color:#fde68a}
+.mg-lobby .mg-copy{all:unset;cursor:pointer;font-size:11px;background:#334155;border-radius:6px;padding:2px 6px;margin-left:4px}
 .mg-lobby .mg-server{font-size:12px;color:#94a3b8;margin-top:12px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .mg-lobby .mg-server button{background:none;border:0;color:#93c5fd;cursor:pointer;font:inherit;text-decoration:underline;padding:0}
 `;
@@ -61,7 +64,7 @@ export class Lobby {
     return (sel) => this.el.querySelector(sel);
   }
 
-  serverLabel(url) { return url === 'local' ? '로컬 테스트 (같은 브라우저의 다른 탭끼리)' : url; }
+  serverLabel(url) { return url === 'local' ? '로컬 테스트 (같은 브라우저의 다른 탭끼리)' : globalThis.MINIIGAME_LAN ? '같은 와이파이 서버 (이 주소의 PC)' : url; }
 
   // ---------- 1단계: 닉네임 + 연결 ----------
   renderConnect(error = '') {
@@ -74,6 +77,7 @@ export class Lobby {
       <button class="mg-btn mg-primary mg-go">접속하기</button>
       ${error ? `<p class="mg-err">${esc(error)}</p>` : ''}
       <div class="mg-server">서버: <span>${esc(this.serverLabel(url))}</span> <button class="mg-chg">변경</button></div>
+      ${url === 'local' ? `<p class="mg-help">📶 <b>같은 와이파이에서 여러 기기로 하려면</b><br>PC 한 대에서 미니게임 폴더의 <b>start-lan</b> 파일을 실행(Node.js 필요)하고, 창에 나오는 <b>http://192.168…:8787</b> 주소를 모든 기기의 브라우저로 여세요. 그 주소로 들어오면 서버가 자동으로 연결돼요.</p>` : ''}
       <div class="mg-gap"></div>
       <button class="mg-btn mg-close">닫기</button>`);
     const go = () => {
@@ -156,6 +160,10 @@ export class Lobby {
   readField(el, it) { return it.type === 'toggle' ? el.checked : it.type === 'range' || typeof it.default === 'number' ? Number(el.value) : el.value; }
 
   renderRoom() {
+    if (globalThis.MINIIGAME_LAN && this.lan === undefined) { // 같은 와이파이 서버: 친구에게 알려줄 주소
+      this.lan = null;
+      fetch('/lan').then((r) => r.json()).then((d) => { this.lan = d.urls ?? []; if (this.el && this.net?.room) this.render(); }).catch(() => { this.lan = []; });
+    }
     const net = this.net, room = net.room, cfg = this.cfg, mp = this.game.constructor.multiplayer;
     const host = net.isHost, me = net.me;
     // 내 정보(캐릭터 등) 기본값 전송
@@ -168,6 +176,7 @@ export class Lobby {
     const $ = this.panel(`
       <p class="mg-sub" style="text-align:center;margin:0">방 코드 (친구에게 알려주세요)</p>
       <div class="mg-roomcode">${esc(room.code)}</div>
+      ${this.lan?.length ? `<p class="mg-help" style="text-align:center">📶 같은 와이파이 친구: 브라우저로 <b class="mg-lanurl">${esc(this.lan[0])}</b> 열기 → 🌐 멀티플레이 → 코드 입력 <button class="mg-copy">주소 복사</button></p>` : ''}
       <ul class="mg-players">${room.players.map((p) => `<li class="${p.id === net.id ? 'mg-me' : ''}"><span>${p.id === room.host ? '👑 ' : ''}${esc(p.name)}${p.id === net.id ? ' (나)' : ''}</span>
         <span>${esc(this.game.describeInfo?.(p.info) ?? '')}${p.id !== room.host ? `<span class="mg-tag ${p.ready ? 'mg-ok' : ''}">${p.ready ? '준비 완료' : '대기'}</span>` : '<span class="mg-tag">방장</span>'}</span></li>`).join('')}</ul>
       <p class="mg-sub" style="margin:0 0 6px">${room.players.length}/${room.max}명 · 최소 ${mp.min}명부터 시작${room.state === 'playing' ? ' · <b style="color:#fde68a">게임 진행 중 - 다음 판부터 참가</b>' : ''}</p>
@@ -193,6 +202,7 @@ export class Lobby {
     $('.mg-start') && ($('.mg-start').onclick = () => net.start());
     $('.mg-ready') && ($('.mg-ready').onclick = () => net.setInfo(this.info ?? {}, !me?.ready));
     $('.mg-leave').onclick = () => net.leave();
+    $('.mg-copy') && ($('.mg-copy').onclick = () => { navigator.clipboard?.writeText(this.lan[0]).then(() => { $('.mg-copy').textContent = '복사됨!'; }).catch(() => {}); });
     $('.mg-close').onclick = () => this.close();
   }
 }
