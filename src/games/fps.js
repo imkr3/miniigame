@@ -195,6 +195,7 @@ export default class Fps extends GameBase {
     const cv = this.renderer.domElement;
     cv.removeEventListener('webglcontextlost', this._onLost); cv.removeEventListener('webglcontextrestored', this._onRestored);
     this.disposeGroup(this.scene);
+    this.disposeGroup(this.view.scene);
     this.renderer.autoClear = true;
     this.renderer.renderLists.dispose();
     cv.remove();
@@ -210,14 +211,7 @@ export default class Fps extends GameBase {
     this.mapGroup = this.world.build();
     this.scene.add(this.mapGroup);
     this.mapIdx = idx;
-    // 하늘 그라데이션 + 안개 + 해
-    this.scene.background?.dispose?.();
-    const sc = document.createElement('canvas'); sc.width = 2; sc.height = 128;
-    const sx = sc.getContext('2d'), gr = sx.createLinearGradient(0, 0, 0, 128), css = (c) => '#' + new THREE.Color(c).getHexString();
-    gr.addColorStop(0, css(new THREE.Color(def.sky).multiplyScalar(0.8))); gr.addColorStop(0.45, css(def.sky)); gr.addColorStop(0.62, css(def.fog)); gr.addColorStop(1, css(def.fog));
-    sx.fillStyle = gr; sx.fillRect(0, 0, 2, 128);
-    const bg = new THREE.CanvasTexture(sc); bg.colorSpace = THREE.SRGBColorSpace;
-    this.scene.background = bg;
+    this.scene.background = new THREE.Color(def.fog);
     this.scene.fog = new THREE.Fog(def.fog, 25, def.fogFar);
     this.sun.color.setHex(def.sun);
     this.sun.position.set(45, 80, 30); this.sun.target.position.set(0, 0, 0);

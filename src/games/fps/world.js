@@ -2,6 +2,7 @@
 // 좌표: x 동서, z 남북, y 위. 모든 충돌체는 축에 나란한 상자(AABB)
 import * as THREE from '../../vendor/three.module.min.js';
 import { lathe } from '../kart/shapes.js';
+import { buildSky, groundColors } from './scenery.js';
 
 export const STEP_H = 0.55;   // 이 높이까지는 계단처럼 그냥 올라감
 export const GRAVITY = 22;
@@ -17,7 +18,21 @@ const MATS = {
   metal: { tile: 2.4, draw: (c, w, h) => { c.fillStyle = '#d9d9d9'; c.fillRect(0, 0, w, h); for (let x = 0; x < w; x += 16) { const g = c.createLinearGradient(x, 0, x + 16, 0); g.addColorStop(0, 'rgba(0,0,0,.28)'); g.addColorStop(0.5, 'rgba(255,255,255,.12)'); g.addColorStop(1, 'rgba(0,0,0,.28)'); c.fillStyle = g; c.fillRect(x, 0, 16, h); } c.fillStyle = 'rgba(0,0,0,.25)'; c.fillRect(0, 0, w, 5); c.fillRect(0, h - 5, w, 5); } },
   wood: { tile: 0, draw: (c, w, h) => { c.fillStyle = '#a9743a'; c.fillRect(0, 0, w, h); for (let y = 0; y < h; y += 21) { c.fillStyle = y % 42 ? '#b78245' : '#a06c34'; c.fillRect(0, y, w, 20); } c.strokeStyle = '#6d4520'; c.lineWidth = 10; c.strokeRect(5, 5, w - 10, h - 10); c.lineWidth = 9; c.beginPath(); c.moveTo(8, 8); c.lineTo(w - 8, h - 8); c.moveTo(w - 8, 8); c.lineTo(8, h - 8); c.stroke(); } },
   planks: { tile: 2, draw: (c, w, h) => { for (let y = 0; y < h; y += 16) { c.fillStyle = ['#9a6b3a', '#8a5e30', '#a67642'][(y / 16) % 3]; c.fillRect(0, y, w, 15); c.fillStyle = 'rgba(0,0,0,.3)'; c.fillRect(0, y + 15, w, 1); } } },
-  sandbag: { tile: 1.2, draw: (c, w, h) => { c.fillStyle = '#6b5b3e'; c.fillRect(0, 0, w, h); for (let y = 0; y < 4; y++) for (let x = -1; x < 3; x++) { c.fillStyle = (x + y) % 2 ? '#b9a26e' : '#a8915f'; c.beginPath(); c.roundRect(x * 64 + (y % 2) * 32 + 2, y * 32 + 2, 60, 28, 12); c.fill(); } } },
+  sandbag: { tile: 1.2, draw: (c, w, h) => {
+    c.fillStyle = '#756747'; c.fillRect(0, 0, w, h);
+    for (let row = 0; row < 4; row++) for (let col = -1; col < 3; col++) {
+      const x = col * 64 + (row % 2) * 32, y = row * 32;
+      const canvas = c.createLinearGradient(0, y, 0, y + 32);
+      canvas.addColorStop(0, '#cbb88e'); canvas.addColorStop(0.33, '#bdac84'); canvas.addColorStop(1, '#897957');
+      c.fillStyle = canvas; c.beginPath(); c.roundRect(x, y + 1, 64, 31, [8, 12, 7, 10]); c.fill();
+      c.strokeStyle = 'rgba(84,69,45,.35)'; c.lineWidth = 1;
+      for (let k = 0; k < 4; k++) {
+        c.beginPath(); c.moveTo(x + 4, y + 10 + k * 3); c.lineTo(x + 11 + k, y + 9 + k * 5); c.stroke();
+      }
+      c.fillStyle = 'rgba(230,218,179,.4)';
+      for (let k = 8; k < 57; k += 4) c.fillRect(x + k, y + 25 + Math.sin(k / 12), 2, 1);
+    }
+  } },
   roof: { tile: 3, draw: (c, w, h) => { noise(c, w, h, '#8a5a44', 0.1); c.fillStyle = 'rgba(0,0,0,.2)'; for (let y = 0; y < h; y += 16) c.fillRect(0, y, w, 2); } },
   dark: { tile: 3, draw: (c, w, h) => { noise(c, w, h, '#3b4048', 0.12); } },
   asphalt: { tile: 8, draw: (c, w, h) => { noise(c, w, h, '#4c5057', 0.14); } },
@@ -40,7 +55,19 @@ function crack(c, w, h) {
 }
 function makeTexture(name) {
   const cv = document.createElement('canvas'); cv.width = cv.height = 128;
-  MATS[name].draw(cv.getContext('2d'), 128, 128);
+  const c = cv.getContext('2d');
+  MATS[name].draw(c, 128, 128);
+  if (name === 'metal' || name === 'wood') {
+    for (const x of [6, 122]) for (const y of [6, 64, 122]) {
+      c.fillStyle = '#453f39'; c.beginPath(); c.arc(x, y, 2.3, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#cfbea5'; c.fillRect(x - 1, y - 1, 2, 1);
+    }
+    c.strokeStyle = 'rgba(255,238,198,.34)';
+    for (let i = 0; i < 46; i++) {
+      const x = Math.random() * 128, y = Math.random() * 128;
+      c.beginPath(); c.moveTo(x, y); c.lineTo(x + 2 + Math.random() * 9, y + 1); c.stroke();
+    }
+  }
   const t = new THREE.CanvasTexture(cv);
   t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
@@ -365,10 +392,13 @@ export class World {
   // ---------------- 그리기용 메시 ----------------
   build() {
     const g = new THREE.Group(), def = this.def;
+    g.add(buildSky(def));
     const tex = {}, T = (n) => (tex[n] ??= makeTexture(n));
     // 땅
-    const gt = T(def.ground); const gm = new THREE.MeshLambertMaterial({ map: gt });
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(this.hx * 2 + 160, this.hz * 2 + 160), gm);
+    const gt = T(def.ground); const gm = new THREE.MeshLambertMaterial({ map: gt, vertexColors: true });
+    const width = this.hx * 2 + 160, depth = this.hz * 2 + 160;
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(width, depth, 112, 112), gm);
+    groundColors(ground.geometry, this.boxes, width, depth);
     const uv = ground.geometry.attributes.uv, tile = MATS[def.ground].tile;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (this.hx * 2 + 160) / tile, uv.getY(i) * (this.hz * 2 + 160) / tile);
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;

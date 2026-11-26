@@ -152,10 +152,20 @@ export class ViewModel {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x556070, 1.25));
     const d = new THREE.DirectionalLight(0xffffff, 1.3); d.position.set(1, 2, 1.5); this.scene.add(d);
     this.root = new THREE.Group(); this.root.scale.setScalar(0.62); this.scene.add(this.root);
-    this.gun = new THREE.Mesh(gunGeo('ar'), VC); this.root.add(this.gun);
+    const finish = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0x848f9a, shininess: 46 });
+    this.gun = new THREE.Mesh(gunGeo('ar'), finish); this.root.add(this.gun);
+    const rim = new THREE.DirectionalLight(0xb3d9ff, 1.1);
+    rim.position.set(-2, 1, -2); this.scene.add(rim);
     const sleeve = 0x4c5a44, glove = 0x2b2f36;
-    this.armR = new THREE.Mesh(boxes([[0.085, 0.085, 0.36, 0.03, -0.09, 0.2, sleeve, -0.3], [0.075, 0.09, 0.09, 0, -0.045, 0.02, glove]]), VC);
-    this.armL = new THREE.Mesh(boxes([[0.085, 0.085, 0.42, -0.13, -0.1, -0.2, sleeve, -0.25, -0.5], [0.08, 0.075, 0.1, -0.015, -0.03, -0.4, glove]]), VC);
+    const right = [[0.105, 0.105, 0.84, 0.07, -0.185, 0.4, sleeve, 0.33, 0.16], [0.075, 0.09, 0.09, 0, -0.045, 0.02, glove],
+      [0.091, 0.09, 0.04, 0.02, -0.065, 0.088, 0x393f35, -0.3], [0.058, 0.018, 0.05, 0.021, -0.02, 0.084, 0x20282c, -0.3]];
+    for (let i = 0; i < 3; i++) right.push([0.06, 0.018, 0.035, -0.016, -0.033 - i * 0.021, -0.024, 0x434744]);
+    this.armR = new THREE.Mesh(boxes(right), VC);
+    this.armL = new THREE.Mesh(boxes([
+      [0.11, 0.105, 1.18, -0.23, -0.255, 0.12, sleeve, 0.38, -0.38],
+      [0.11, 0.098, 0.05, -0.048, -0.068, -0.325, 0x373e33, 0.38, -0.38],
+      [0.082, 0.08, 0.11, -0.016, -0.036, -0.4, glove],
+    ]), VC);
     this.root.add(this.armR, this.armL);
     this.flash = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), flashMat()); this.flash.visible = false; this.root.add(this.flash);
     this.setWeapon('ar'); this.kick = 0; this.bob = 0; this.swayX = 0; this.swayY = 0; this.flashT = 0; this.swing = 0;
