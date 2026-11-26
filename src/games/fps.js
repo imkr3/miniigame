@@ -162,7 +162,7 @@ export default class Fps extends GameBase {
   }
   onResize(w, h) {
     W = this.width;
-    if (!this.renderer) return;
+    if (!this.renderer || w <= 0 || h <= 0) return;
     const q = { low: 1, normal: 1.5, high: 2 }[this.cfg?.quality ?? 'normal'] ?? 1.5;
     this.maxRatio = Math.min(window.devicePixelRatio || 1, q);
     this.ratio = Math.min(this.ratio ?? this.maxRatio, this.maxRatio);
@@ -303,14 +303,31 @@ export default class Fps extends GameBase {
     const T = this.$touch, tc = this.touch;
     const btn = (name, down, up) => {
       const el = T.querySelector(`[data-b="${name}"]`);
-      el.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); sfx.unlock(); el.setPointerCapture?.(e.pointerId); el.classList.add('on'); el._last = [e.clientX, e.clientY]; down?.(el); });
-      el.addEventListener('pointermove', (e) => { if (!el._last) return; this.look.dx += (e.clientX - el._last[0]) * 2.2; this.look.dy += (e.clientY - el._last[1]) * 2.2; el._last = [e.clientX, e.clientY]; }); // 버튼을 누른 채 끌어도 조준
-      const end = (e) => { e.stopPropagation(); el._last = null; if (!el._toggle) el.classList.remove('on'); up?.(el); };
-      el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+      let pointer = null, lastX, lastY;
+      el.addEventListener('pointerdown', (e) => {
+        e.stopPropagation(); e.preventDefault();
+        if (pointer !== null) return;
+        pointer = e.pointerId; lastX = e.clientX; lastY = e.clientY;
+        sfx.unlock(); el.setPointerCapture?.(pointer); el.classList.add('on'); down?.(el);
+      });
+      el.addEventListener('pointermove', (e) => {
+        if (pointer !== e.pointerId) return;
+        this.look.dx += (e.clientX - lastX) * 2.2; this.look.dy += (e.clientY - lastY) * 2.2;
+        lastX = e.clientX; lastY = e.clientY;
+      });
+      const end = (e) => {
+        if (pointer !== e.pointerId) return;
+        pointer = null;
+        if (!el._toggle) el.classList.remove('on');
+        up?.(el);
+      };
+      el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end); el.addEventListener('lostpointercapture', end);
       return el;
     };
-    btn('fire', () => { tc.fire = true; }, () => { tc.fire = false; });
-    btn('fire2', () => { tc.fire = true; }, () => { tc.fire = false; });
+    const fireButtons = new Set();
+    for (const name of ['fire', 'fire2']) {
+      btn(name, () => { fireButtons.add(name); tc.fire = true; }, () => { fireButtons.delete(name); tc.fire = fireButtons.size > 0; });
+    }
     btn('jump', () => { this.jumpQ = true; });
     btn('reload', () => { if (this.player?.alive) this.startReload(this.player); else this.nextPrimary(1); });
     btn('switch', () => { if (this.player?.alive) this.cycleWeapon(1); else this.nextPrimary(1); });
@@ -338,7 +355,7 @@ export default class Fps extends GameBase {
       if (e.pointerId === tc.stickId) { tc.stickId = null; tc.mx = tc.mz = 0; this.$stick.hidden = true; }
       if (e.pointerId === tc.lookId) tc.lookId = null;
     };
-    T.addEventListener('pointerup', end); T.addEventListener('pointercancel', end);
+    T.addEventListener('pointerup', end); T.addEventListener('pointercancel', end); T.addEventListener('lostpointercapture', end);
   }
   pause() { super.pause(); if (this.isLocked()) document.exitPointerLock?.(); }
   resume() { super.resume(); if (this.state === 'playing' && this.phase === 'play') this.requestLock(); }
@@ -824,6 +841,7 @@ export default class Fps extends GameBase {
   // ---------------- 매 프레임 ----------------
   update(dt) {
     if (this.noGL) return;
+    this.frameDt = dt;
     this.effects.update(dt);
     if (this.phase === 'menu') return;
     const p = this.player;
@@ -833,6 +851,9 @@ export default class Fps extends GameBase {
     for (const f of this.feed) f.t -= dt;
     for (const d of this.dmgInd) d.t -= dt;
     this.dmgInd = this.dmgInd.filter((d) => d.t > 0);
+    for (let i = this.dmgNums.length - 1; i >= 0; i--) {
+      if ((this.dmgNums[i].t -= dt) <= 0) this.dmgNums.splice(i, 1);
+    }
 
     this.updatePlayer(dt);
     // 좀비용 거리 지도
@@ -958,6 +979,7 @@ export default class Fps extends GameBase {
       return;
     }
     const cam = this.cam, p = this.player, t = performance.now() / 1000;
+    const dt = this.state === 'playing' ? this.frameDt ?? 0 : 0;
     const menu = this.phase === 'menu' || !this.phase || !p;
     if (menu) { // 맵을 천천히 도는 카메라
       const R = Math.max(this.world.hx, this.world.hz) * 0.75, a = t * 0.12;
@@ -968,9 +990,8 @@ export default class Fps extends GameBase {
       cam.position.set(p.x - dx / d * 2.2, p.y + 2.3, p.z - dz / d * 2.2); cam.rotation.set(0, 0, 0); cam.lookAt(k.x, k.y + 1.2, k.z);
       cam.fov = 70;
     } else {
-      const dt = 1 / 60;
-      this.eyeY += ((p.crouch ? EYE_CROUCH : EYE) - this.eyeY) * Math.min(1, dt * 12);
-      this.camY = this.camY === undefined || Math.abs(p.y - this.camY) > 1.5 ? p.y : this.camY + (p.y - this.camY) * Math.min(1, dt * 16); // 계단을 오를 때 부드럽게
+      this.eyeY += ((p.crouch ? EYE_CROUCH : EYE) - this.eyeY) * (1 - Math.exp(-dt * 12));
+      this.camY = this.camY === undefined || Math.abs(p.y - this.camY) > 1.5 ? p.y : this.camY + (p.y - this.camY) * (1 - Math.exp(-dt * 16)); // 계단을 오를 때 부드럽게
       const sp = Math.hypot(p.vx, p.vz), sh = this.shakeT > 0 && this.cfg.shake ? this.shakeT : 0;
       this.bobT += sp * dt * 1.9;
       cam.position.set(p.x, this.camY + this.eyeY + (p.grounded ? Math.abs(Math.sin(this.bobT)) * 0.035 * Math.min(1, sp / 4) : 0) - (p.alive ? 0 : Math.min(1.2, p.deadT * 3)), p.z);
@@ -993,7 +1014,7 @@ export default class Fps extends GameBase {
       r.render(this.scene, cam);
       const def = p ? this.curDef(p) : null;
       if (!menu && p.alive && !(def.scope && this.adsK > 0.8)) {
-        this.view.update(1 / 60, { ads: this.adsK, moving: p.grounded ? Math.min(1, Math.hypot(p.vx, p.vz) / WALK) : 0, sprint: p.sprinting, reload: p.reloadT > 0 ? 1 - p.reloadT / p.reloadDur : -1, switching: Math.max(0, p.switchT / 0.3), lookDX: this.lookDX ?? 0, lookDY: this.lookDY ?? 0, air: !p.grounded });
+        this.view.update(dt, { ads: this.adsK, moving: p.grounded ? Math.min(1, Math.hypot(p.vx, p.vz) / WALK) : 0, sprint: p.sprinting, reload: p.reloadT > 0 ? 1 - p.reloadT / p.reloadDur : -1, switching: Math.max(0, p.switchT / 0.3), lookDX: this.lookDX ?? 0, lookDY: this.lookDY ?? 0, air: !p.grounded });
         r.clearDepth();
         r.render(this.view.scene, this.view.camera);
       }
@@ -1012,8 +1033,8 @@ export default class Fps extends GameBase {
     let r = this.ratio;
     if (this.frameAvg > 24 && r > 0.6) r = Math.max(0.6, r - 0.2);
     else if (this.frameAvg > 30 && this.sun.castShadow) { this.sun.castShadow = false; return; }
-    else if (this.frameAvg < 15 && r < this.maxRatio) r = Math.min(this.maxRatio, r + 0.1);
-    if (r !== this.ratio) { this.ratio = r; this.renderer.setPixelRatio(r); this.renderer.setSize(this.viewW, this.viewH, false); }
+    else if (this.frameAvg < 18 && r < this.maxRatio) r = Math.min(this.maxRatio, r + 0.1);
+    if (r !== this.ratio) { this.ratio = r; this.renderer.setPixelRatio(r); }
   }
 
   project(x, y, z) {
@@ -1057,8 +1078,7 @@ export default class Fps extends GameBase {
       if (p.reloadT > 0) { ctx.strokeStyle = '#fde68a'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(cx, cy, 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - p.reloadT / p.reloadDur)); ctx.stroke(); text('재장전', cx, cy + 32, F(9), '#fde68a', 'center'); }
     }
     // 준 피해 숫자: 맞은 적 머리 위로 떠오름 (헤드샷은 노랗고 크게)
-    for (const d of this.dmgNums ?? []) {
-      if ((d.t -= 1 / 60) <= 0) continue;
+    for (const d of this.dmgNums) {
       const s = this.project(d.x, d.y + (0.7 - d.t) * 0.9, d.z); if (!s) continue;
       ctx.globalAlpha = Math.min(1, d.t * 3);
       text(String(d.n), s[0], s[1], F(d.head ? 13 : 10), d.head ? '#fde047' : '#fff', 'center');

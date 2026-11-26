@@ -159,7 +159,8 @@ export class ViewModel {
     this.root.add(this.armR, this.armL);
     this.flash = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), flashMat()); this.flash.visible = false; this.root.add(this.flash);
     this.setWeapon('ar'); this.kick = 0; this.bob = 0; this.swayX = 0; this.swayY = 0; this.flashT = 0; this.swing = 0;
-    this.pos = new THREE.Vector3(0.15, -0.15, -0.42);
+    this.root.position.set(0.15, -0.15, -0.42);
+    this.targetPosition = new THREE.Vector3();
   }
   setWeapon(id) {
     if (this.id === id) return;
@@ -173,11 +174,13 @@ export class ViewModel {
   fire(melee) { if (melee) this.swing = 1; else { this.kick = 1; this.flashT = 0.045; this.flash.rotation.z = Math.random() * 6; this.flash.scale.setScalar(0.8 + Math.random() * 0.6); } }
   /** s = { ads(0~1), moving(0~1), sprint, reload(0~1 진행, 없으면 -1), switching(0~1), lookDX, lookDY, air } */
   update(dt, s) {
+    if (dt <= 0) return;
     this.kick = Math.max(0, this.kick - dt * 9); this.swing = Math.max(0, this.swing - dt * 4.5);
     this.flashT -= dt; this.flash.visible = this.flashT > 0;
     this.bob += dt * (s.sprint ? 13 : 9) * s.moving;
-    this.swayX += (-s.lookDX * 0.0025 - this.swayX) * Math.min(1, dt * 8);
-    this.swayY += (s.lookDY * 0.0025 - this.swayY) * Math.min(1, dt * 8);
+    const swayK = 1 - Math.exp(-dt * 8), lookScale = 0.0025 / (60 * dt);
+    this.swayX += (-s.lookDX * lookScale - this.swayX) * swayK;
+    this.swayY += (s.lookDY * lookScale - this.swayY) * swayK;
     const ads = s.ads, hip = 1 - ads, hipX = this.id === 'knife' ? 0.19 : 0.15;
     const tx = hipX * hip, ty = -0.15 * hip + this.adsY * ads, tz = -0.42 + 0.12 * ads;
     const bobA = hip * s.moving;
@@ -189,8 +192,7 @@ export class ViewModel {
     if (s.reload >= 0) { const k = Math.sin(Math.min(1, s.reload) * Math.PI); y -= 0.16 * k; rx -= 0.7 * k; rz = 0.35 * k; }
     if (s.switching > 0) { y -= 0.3 * s.switching; rx -= 0.6 * s.switching; }
     if (this.swing > 0) { const k = Math.sin((1 - this.swing) * Math.PI); x -= 0.2 * k; z -= 0.22 * k; ry += 0.9 * k; rx -= 0.3 * k; }
-    this.pos.lerp(new THREE.Vector3(x, y, z), Math.min(1, dt * 22));
-    this.root.position.copy(this.pos);
+    this.root.position.lerp(this.targetPosition.set(x, y, z), 1 - Math.exp(-dt * 22));
     this.root.rotation.set(rx, ry, rz);
   }
 }
