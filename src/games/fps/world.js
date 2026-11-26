@@ -1,6 +1,7 @@
 // 스쿼드 슈터 - 전장: 상자들로 맵을 만들고(그리기용 메시 + 충돌 상자), 충돌·광선·길찾기를 제공
 // 좌표: x 동서, z 남북, y 위. 모든 충돌체는 축에 나란한 상자(AABB)
 import * as THREE from '../../vendor/three.module.min.js';
+import { lathe } from '../kart/shapes.js';
 
 export const STEP_H = 0.55;   // 이 높이까지는 계단처럼 그냥 올라감
 export const GRAVITY = 22;
@@ -411,7 +412,8 @@ export class World {
     // 원통 모양 (드럼통 등)
     const cyl = this.boxes.filter((o) => o.shape === 'cyl');
     if (cyl.length) {
-      const inst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 14), new THREE.MeshLambertMaterial({ map: T('metal') }), cyl.length);
+      const drum = lathe([[0, -0.5], [0.49, -0.5], [0.49, -0.47], [0.46, -0.45], [0.46, -0.24], [0.5, -0.22], [0.5, -0.19], [0.46, -0.17], [0.46, 0.17], [0.5, 0.19], [0.5, 0.22], [0.46, 0.24], [0.46, 0.45], [0.49, 0.47], [0.49, 0.5], [0, 0.5]], 18);
+      const inst = new THREE.InstancedMesh(drum, new THREE.MeshLambertMaterial({ map: T('metal') }), cyl.length);
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
       cyl.forEach((o, i) => { m4.compose(new THREE.Vector3((o.x0 + o.x1) / 2, (o.y0 + o.y1) / 2, (o.z0 + o.z1) / 2), q, new THREE.Vector3(o.x1 - o.x0, o.y1 - o.y0, o.z1 - o.z0)); inst.setMatrixAt(i, m4); inst.setColorAt(i, col.set(o.tint)); });
       inst.castShadow = inst.receiveShadow = true;
@@ -422,7 +424,9 @@ export class World {
       const list = this.props.filter((p) => p.type === kind);
       if (!list.length) continue;
       const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 0.24, 2.4, 8), new THREE.MeshLambertMaterial({ color: 0x7a5230 }), list.length);
-      const leafGeo = kind === 'pine' ? new THREE.ConeGeometry(1.5, 3.6, 9) : kind === 'palm' ? new THREE.ConeGeometry(2.2, 0.9, 7) : new THREE.IcosahedronGeometry(1.6, 1);
+      const leafGeo = kind === 'pine'
+        ? lathe([[0, -1.8], [1.45, -1.65], [0.66, -0.46], [1.14, -0.65], [0.44, 0.38], [0.78, 0.19], [0, 1.8]], 11)
+        : kind === 'palm' ? new THREE.ConeGeometry(2.2, 0.9, 7) : new THREE.IcosahedronGeometry(1.6, 1);
       const leaf = new THREE.InstancedMesh(leafGeo, new THREE.MeshLambertMaterial({ color: kind === 'pine' ? 0x2f6b4f : kind === 'palm' ? 0x3f9d4a : 0x4f9d47 }), list.length);
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
       list.forEach((p, i) => {

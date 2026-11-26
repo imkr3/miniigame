@@ -8,7 +8,7 @@ const PREF = { dmr: 28, launcher: 15, ar: 17, smg: 9, shotgun: 5, sniper: 34, lm
 
 export function newAI() {
   return { target: null, senseT: Math.random() * 0.2, reactT: 0, errX: 0, errY: 0, errT: 0, burst: 0, pause: 0, strafe: Math.random() < 0.5 ? 1 : -1, strafeT: 0,
-    engageT: 0, headOnly: false, goal: null, path: null, pi: 0, repathT: 0, stuckT: 0, lastX: 0, lastZ: 0, fails: 0, alertT: 0, chase: null, lastSeenT: -9, nadeCd: rnd(4, 12), crouchT: 0, jumpCd: 0 };
+    engageT: 0, headOnly: false, goal: null, path: null, pi: 0, repathT: 0, stuckT: 0, lastX: 0, lastZ: 0, fails: 0, alertT: 0, chase: null, lastSeen: null, nadeCd: rnd(4, 12), crouchT: 0, jumpCd: 0 };
 }
 
 /** 총소리·피격 등으로 주변 적 봇에게 위치를 알림 */
@@ -17,7 +17,10 @@ export function alertBots(game, x, z, team, radius) {
     if (!b.ai || !b.alive || b.remote || b.zombie || b.team === team) continue;
     if ((b.x - x) ** 2 + (b.z - z) ** 2 > radius * radius) continue;
     b.ai.alertT = 3;
-    if (!b.ai.target && !b.ai.chase) b.ai.chase = [x + rnd(-3, 3), z + rnd(-3, 3)];
+    if (!b.ai.target && !b.ai.chase) {
+      b.ai.chase = [x + rnd(-4, 4), z + rnd(-4, 4)];
+      b.ai.goal = null;
+    }
   }
 }
 
@@ -31,8 +34,10 @@ function sense(game, a) {
     if (!e.alive || e === a || e.team === a.team) continue;
     const dx = e.x - a.x, dz = e.z - a.z, d = Math.hypot(dx, dz);
     if (d > D.see) continue;
-    // 시야각: 평소엔 앞쪽 약 130°, 경계 중이거나 아주 가까우면 사방
-    if (!(ai.alertT > 0 || d < 6 || e === ai.target)) { if ((dx * fx + dz * fz) / (d || 1) < 0.42) continue; }
+    const facing = (dx * fx + dz * fz) / (d || 1);
+    if (facing < (ai.alertT > 0 ? 0.42 : 0.57)) continue;
+    const elevation = Math.atan2(eyeY(e) - eyeY(a), d);
+    if (Math.abs(elevation - a.pitch) > Math.PI / 4) continue;
     const sc = d * (e === ai.target ? 0.6 : 1);
     if (sc >= bd) continue;
     const ey = eyeY(a), s = e.scale ?? 1;
@@ -41,9 +46,13 @@ function sense(game, a) {
     if (chest || W.los(a.x, ey, a.z, e.x, e.y + (e.crouch ? 1.0 : 1.58) * s, e.z)) { best = e; bd = sc; ai.headOnly = !chest; }
   }
   if (best) {
-    if (ai.target !== best) ai.reactT = D.react * rnd(0.7, 1.4) * (ai.alertT > 0 ? 0.7 : 1);
-    ai.target = best; ai.lastSeen = [best.x, best.z]; ai.lastSeenT = game.time; ai.chase = null; ai.alertT = Math.max(ai.alertT, 2);
-  } else if (ai.target && (!ai.target.alive || game.time - ai.lastSeenT > 0.5)) {
+    if (ai.target !== best) {
+      ai.reactT = D.react * rnd(0.95, 1.3) + (ai.headOnly ? 0.2 : 0);
+      ai.burst = 0; ai.errT = 0;
+    }
+    ai.target = best; ai.lastSeen = [best.x, best.z]; ai.lastY = best.y; ai.lastCrouch = best.crouch;
+    ai.chase = null; ai.alertT = Math.max(ai.alertT, 2);
+  } else if (ai.target) {
     if (ai.target.alive && ai.lastSeen) { ai.chase = ai.lastSeen; ai.goal = null; }
     ai.target = null;
   }
@@ -60,16 +69,7 @@ function pickGoal(game, a) {
     for (const p of game.pickups) { if (p.type !== need || p.t > 0 || p.y > 1) continue; const d2 = (p.x - a.x) ** 2 + (p.z - a.z) ** 2; if (d2 < bd2) { bd2 = d2; bp = p; } }
     if (bp && bd2 < 45 * 45) return [bp.x, bp.z];
   }
-  // 적이 있을 법한 곳으로: 무작위 후보 몇 곳 중 적과 가까운 곳 (전투가 끊기지 않게)
-  const foes = game.actors.filter((e) => e.alive && e.team !== a.team);
-  const foe = foes[Math.floor(Math.random() * foes.length)];
-  let best = W.randomFree(), bs = Infinity;
-  for (let k = 0; k < 5; k++) {
-    const c = W.randomFree();
-    const s = foe ? Math.hypot(c[0] - foe.x, c[1] - foe.z) + rnd(0, 14) : Math.random();
-    if (s < bs) { bs = s; best = c; }
-  }
-  return best;
+  return W.randomFree();
 }
 
 /** 길을 따라 걷기 → [wx, wz] (가고 싶은 방향, 길이 1) */
@@ -98,7 +98,8 @@ export function updateBot(game, a, dt) {
   a.ads = false;
 
   if (t && t.alive) {
-    const dx = t.x - a.x, dz = t.z - a.z, d = Math.hypot(dx, dz), s = t.scale ?? 1;
+    const [tx, tz] = ai.lastSeen;
+    const dx = tx - a.x, dz = tz - a.z, d = Math.hypot(dx, dz), s = t.scale ?? 1;
     // 조준: 몸통(어려움에선 가끔 머리) + 오차. 오차는 0.35초마다 새로 정함 (움직이는 적·먼 적일수록 큼)
     if ((ai.errT -= dt) <= 0) {
       ai.errT = 0.35;
@@ -106,22 +107,23 @@ export function updateBot(game, a, dt) {
       ai.errX = (Math.random() - 0.5) * 2 * k; ai.errY = (Math.random() - 0.5) * 2 * k * 0.7;
       ai.head = Math.random() < (D === game.DIFFS.hard ? 0.3 : 0.1);
     }
-    const ty = t.y + (ai.head || ai.headOnly ? (t.crouch ? 1.0 : 1.58) : (t.crouch ? 0.7 : 1.15)) * s;
+    const ty = ai.lastY + (ai.head || ai.headOnly ? (ai.lastCrouch ? 1.0 : 1.58) : (ai.lastCrouch ? 0.7 : 1.15)) * s;
     wantYaw = Math.atan2(-dx, -dz) + ai.errX;
     wantPitch = Math.atan2(ty - eyeY(a), d) + ai.errY;
     ai.reactT -= dt;
     const off = Math.abs(wrap(wantYaw - a.yaw));
     // 사격
     const pref = PREF[id] ?? 15;
-    if (w.def.melee) { if (d < w.def.reach - 0.3 && off < 0.5) game.tryFire(a); }
-    else if (ai.reactT <= 0 && off < 0.09 + 1.2 / Math.max(4, d) && d < (id === 'shotgun' ? 22 : 150)) {
+    const ready = ai.reactT <= 0 && off < 0.08 + 0.35 / Math.max(2, d) && Math.abs(wantPitch - a.pitch) < 0.09;
+    if (w.def.melee) { if (ready && d < w.def.reach - 0.3) game.tryFire(a); }
+    else if (ready && d < pref * 2.2 && (!w.def.launcher || d > w.def.radius * 1.5)) {
       a.ads = d > 12 && id !== 'shotgun';
       if (ai.pause > 0) ai.pause -= dt;
       else if (ai.burst <= 0) { ai.burst = w.def.auto ? Math.round(rnd(D.burst[0], D.burst[1])) : 1; ai.pause = 0; }
       if (ai.pause <= 0 && ai.burst > 0 && game.tryFire(a)) { if (--ai.burst <= 0) ai.pause = w.def.auto ? rnd(0.2, 0.55) : rnd(0.12, 0.4) + (id === 'sniper' ? 0.5 : 0); }
     }
     // 수류탄: 중거리에서 가끔
-    if (ai.nadeCd <= 0 && d > 9 && d < 24 && a.nades > 0 && Math.random() < dt * 0.25) { ai.nadeCd = rnd(9, 18); game.throwGrenade(a, Math.atan2(-dx, -dz), 0.25 + d * 0.012); }
+    if (ready && ai.nadeCd <= 0 && d > 9 && d < 24 && a.nades > 0 && Math.random() < dt * 0.16) { ai.nadeCd = rnd(9, 18); game.throwGrenade(a, a.yaw, 0.25 + d * 0.012); }
     // 이동: 거리 맞추기 + 옆걸음
     if ((ai.strafeT -= dt) <= 0 || a.hitWall) { ai.strafeT = rnd(0.6, 1.5); ai.strafe = a.hitWall ? -ai.strafe : (Math.random() < 0.5 ? 1 : -1); ai.crouchT = d > 14 && Math.random() < 0.25 ? rnd(0.8, 1.6) : 0; }
     const nx = dx / (d || 1), nz = dz / (d || 1);
@@ -132,7 +134,7 @@ export function updateBot(game, a, dt) {
     if (ai.engageT > 5) { fwd = 1; ai.crouchT = 0; if (ai.engageT > 8) ai.engageT = 0; }
     if (ai.crouchT > 0 && !w.def.melee) { ai.crouchT -= dt; a.crouch = true; } else { a.crouch = false; wx = nx * fwd - nz * ai.strafe * (fwd ? 0.5 : 1); wz = nz * fwd + nx * ai.strafe * (fwd ? 0.5 : 1); }
     // 엄폐물 뒤 적에게 다가갈 때는 길찾기를 따름
-    if (fwd > 0 && !game.world.walkable(a.x, a.z, t.x, t.z)) { ai.goal = [t.x, t.z]; const f = follow(game, a, dt); wx = f[0]; wz = f[1]; }
+    if (fwd > 0 && !game.world.walkable(a.x, a.z, tx, tz)) { ai.goal = [tx, tz]; const f = follow(game, a, dt); wx = f[0]; wz = f[1]; }
   } else {
     a.crouch = false;
     const f = follow(game, a, dt); wx = f[0]; wz = f[1];

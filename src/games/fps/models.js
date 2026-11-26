@@ -1,6 +1,6 @@
 // 스쿼드 슈터 - 병사 · 총 · 1인칭 손 모델과 이펙트 (모서리를 살짝 굴린 단순한 상자 조합)
 import * as THREE from '../../vendor/three.module.min.js';
-import { roundedBox, part, merge, mix } from '../kart/shapes.js';
+import { roundedBox, ellipsoid, part, merge, mix } from '../kart/shapes.js';
 import { Sparks } from '../kart/models.js';
 
 const VC = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -23,7 +23,23 @@ const GUN_SHAPES = {
   grenade: { muzzle: -0.1, parts: [[0.085, 0.1, 0.085, 0, 0.03, -0.06, 0x4c5f3a], [0.03, 0.035, 0.03, 0, 0.095, -0.06, STEEL], [0.012, 0.06, 0.05, 0.03, 0.08, -0.06, STEEL]] },
 };
 const gunCache = {};
-export function gunGeo(id) { return (gunCache[id] ??= boxes(GUN_SHAPES[id].parts)); }
+export function gunGeo(id) {
+  if (gunCache[id]) return gunCache[id];
+  const shape = GUN_SHAPES[id], details = [];
+  if (id === 'knife') {
+    for (const z of [-0.045, -0.015, 0.015, 0.045]) details.push([0.037, 0.044, 0.012, 0, 0.02, z, GUN_DARK]);
+  } else if (id === 'grenade') {
+    for (const y of [0.005, 0.032, 0.059]) details.push([0.089, 0.009, 0.089, 0, y, -0.06, 0x384632]);
+  } else {
+    const width = shape.parts[0][0], compact = id === 'pistol';
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 4; i++) details.push([0.006, compact ? 0.024 : 0.035, 0.01, side * width / 2, 0.045, -0.035 - i * 0.023, GUN_MID]);
+    }
+    details.push([0.012, 0.023, compact ? 0.055 : 0.1, width / 2, 0.04, compact ? -0.13 : -0.23, STEEL]);
+    details.push([0.018, 0.018, 0.08, 0, -0.07, -0.06, GUN_MID], [0.018, 0.068, 0.015, 0, -0.045, -0.098, GUN_MID]);
+  }
+  return (gunCache[id] = boxes([...shape.parts, ...details]));
+}
 export const muzzleZ = (id) => GUN_SHAPES[id]?.muzzle ?? -0.5;
 
 let flashTex;
@@ -54,12 +70,22 @@ function soldierGeo(color, zombie, skin) {
   if (zombie) {
     up.push(B(0.07, 0.05, 0.02, 0xf3e96b, -0.065, 0.8, -0.137), B(0.07, 0.05, 0.02, 0xf3e96b, 0.065, 0.8, -0.137), B(0.14, 0.03, 0.02, 0x3b1d1d, 0, 0.71, -0.137));
     up.push(B(0.5, 0.1, 0.28, 0x3a2f2a, 0, 0.07, 0), B(0.3, 0.06, 0.29, mix(skin, 0x000000, 0.3), 0.05, 0.36, 0.0));
+    for (let i = 0; i < 3; i++) up.push(B(0.16 - i * 0.025, 0.035, 0.035, 0x857f63, -0.09, 0.43 - i * 0.07, -0.14, 0, -0.2));
+    up.push(part(ellipsoid(0.13, 0.1, 0.13, 10, 6), camo, 0.23, 0.52, 0.015));
     for (const s of [-1, 1]) up.push(B(0.13, 0.5, 0.14, skin, s * 0.32, 0.42, -0.24, -1.45, s * 0.08), B(0.12, 0.1, 0.12, mix(skin, 0x000000, 0.25), s * 0.3, 0.45, -0.52));
   } else {
     up.push(B(0.52, 0.34, 0.31, color, 0, 0.34, 0), B(0.3, 0.3, 0.14, dark, 0, 0.34, 0.19));        // 조끼 · 배낭
     up.push(B(0.31, 0.15, 0.31, dark, 0, 0.9, 0), B(0.32, 0.05, 0.36, dark, 0, 0.84, -0.01));        // 헬멧
     up.push(B(0.24, 0.07, 0.03, 0x1b2430, 0, 0.8, -0.137), B(0.5, 0.07, 0.2, dark, 0, 0.06, 0));      // 고글 · 벨트
     for (const s of [-1, 1]) up.push(B(0.11, 0.1, 0.14, color, s * 0.3, 0.53, 0));                    // 어깨 패드
+    up.push(part(ellipsoid(0.16, 0.1, 0.16, 14, 8), dark, 0, 0.9, 0));
+    for (const side of [-1, 1]) {
+      up.push(B(0.065, 0.22, 0.045, dark, side * 0.16, 0.46, -0.14, 0, side * 0.12));
+      up.push(B(0.09, 0.046, 0.022, 0x608898, side * 0.056, 0.8, -0.155));
+    }
+    for (const x of [-0.14, 0, 0.14]) {
+      up.push(B(0.115, 0.15, 0.085, camo, x, 0.26, -0.168), B(0.12, 0.04, 0.09, dark, x, 0.316, -0.172));
+    }
   }
   const upper = merge(up);
   // 팔 (총을 든 자세): 원점 = 허리
@@ -132,12 +158,15 @@ export class ViewModel {
     this.armL = new THREE.Mesh(boxes([[0.085, 0.085, 0.42, -0.13, -0.1, -0.2, sleeve, -0.25, -0.5], [0.08, 0.075, 0.1, -0.015, -0.03, -0.4, glove]]), VC);
     this.root.add(this.armR, this.armL);
     this.flash = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), flashMat()); this.flash.visible = false; this.root.add(this.flash);
-    this.id = 'ar'; this.kick = 0; this.bob = 0; this.swayX = 0; this.swayY = 0; this.flashT = 0; this.swing = 0;
+    this.setWeapon('ar'); this.kick = 0; this.bob = 0; this.swayX = 0; this.swayY = 0; this.flashT = 0; this.swing = 0;
     this.pos = new THREE.Vector3(0.15, -0.15, -0.42);
   }
   setWeapon(id) {
     if (this.id === id) return;
     this.id = id; this.gun.geometry = gunGeo(id);
+    this.gun.geometry.computeBoundingBox();
+    // 가장 높은 부품까지 조준점 아래에 두고 표적을 볼 여백을 남긴다.
+    this.adsY = -this.gun.geometry.boundingBox.max.y * this.root.scale.y - 0.045;
     this.armL.visible = !['pistol', 'knife', 'grenade'].includes(id);
     this.flash.position.set(0, 0.05, muzzleZ(id) - 0.1);
   }
@@ -149,12 +178,13 @@ export class ViewModel {
     this.bob += dt * (s.sprint ? 13 : 9) * s.moving;
     this.swayX += (-s.lookDX * 0.0025 - this.swayX) * Math.min(1, dt * 8);
     this.swayY += (s.lookDY * 0.0025 - this.swayY) * Math.min(1, dt * 8);
-    const ads = s.ads, hipX = this.id === 'knife' ? 0.19 : 0.15, K = 0.62; // K = 모델 축소 비율 (조준 시 가늠쇠가 화면 가운데 오도록)
-    const adsY = -(this.id === 'pistol' ? 0.085 : 0.115) * K;
-    const tx = hipX * (1 - ads), ty = -0.15 + (0.15 + adsY) * ads, tz = -0.42 + 0.12 * ads;
-    const bobA = (1 - ads * 0.85) * s.moving;
-    let x = tx + Math.cos(this.bob) * 0.012 * bobA + this.swayX, y = ty + Math.abs(Math.sin(this.bob)) * 0.014 * bobA + this.swayY - (s.air ? 0.01 : 0), z = tz + this.kick * 0.055;
-    let rx = this.kick * 0.09, ry = 0, rz = 0;
+    const ads = s.ads, hip = 1 - ads, hipX = this.id === 'knife' ? 0.19 : 0.15;
+    const tx = hipX * hip, ty = -0.15 * hip + this.adsY * ads, tz = -0.42 + 0.12 * ads;
+    const bobA = hip * s.moving;
+    let x = tx + Math.cos(this.bob) * 0.012 * bobA + this.swayX * hip;
+    let y = ty + Math.abs(Math.sin(this.bob)) * 0.014 * bobA + this.swayY * hip - (s.air ? 0.01 : 0);
+    let z = tz + this.kick * 0.055;
+    let rx = this.kick * 0.09 * hip, ry = 0, rz = 0;
     if (s.sprint) { x -= 0.05; y -= 0.04; ry = 0.5; rx -= 0.25; }
     if (s.reload >= 0) { const k = Math.sin(Math.min(1, s.reload) * Math.PI); y -= 0.16 * k; rx -= 0.7 * k; rz = 0.35 * k; }
     if (s.switching > 0) { y -= 0.3 * s.switching; rx -= 0.6 * s.switching; }

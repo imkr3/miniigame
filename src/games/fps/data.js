@@ -13,8 +13,8 @@ export const WEAPONS = {
   dmr: { id: 'dmr', name: '지정사수 소총', icon: 'DMR', slot: 0, dmg: 46, head: 2.2, rpm: 280, mag: 12, reserve: 60, reload: 2.3, auto: false, spread: [0.02, 0.0012], bloom: 0.01, bloomMax: 0.05, recoil: [0.03, 0.008], range: [55, 110, 0.75], speed: 0.98, zoom: 2.4, desc: '반자동 · 중장거리 세 발, 머리는 한 발' },
   launcher: { id: 'launcher', name: '유탄 발사기', icon: 'GL', slot: 0, launcher: true, dmg: 110, radius: 5.5, fuse: 1.5, head: 1, rpm: 60, mag: 4, reserve: 12, reload: 3, auto: false, spread: [0.01, 0.005], bloom: 0, bloomMax: 0.02, recoil: [0.05, 0.01], range: [40, 40, 1], speed: 0.94, zoom: 1.2, desc: '포물선으로 날아가 1.5초 뒤 폭발 · 엄폐물 뒤 공격' },
   pistol: { id: 'pistol', name: '권총', icon: 'HG', slot: 1, dmg: 30, head: 2, rpm: 330, mag: 12, reserve: 60, reload: 1.3, auto: false, spread: [0.012, 0.005], bloom: 0.008, bloomMax: 0.04, recoil: [0.022, 0.008], range: [16, 42, 0.5], speed: 1.12, zoom: 1.2, desc: '보조 무기' },
-  knife: { id: 'knife', name: '칼', icon: '🔪', slot: 2, melee: true, dmg: 75, head: 1, rpm: 110, reach: 2.2, speed: 1.2, desc: '가장 빠르게 달림 · 뒤에서 찌르면 즉사' },
-  grenade: { id: 'grenade', name: '수류탄', icon: '💣', slot: 3, throw: true, count: 2, dmg: 150, radius: 7.5, fuse: 2.2, speed: 1.05, desc: '2.2초 뒤 폭발' },
+  knife: { id: 'knife', name: '칼', icon: '🔪', slot: 2, melee: true, dmg: 75, head: 1, rpm: 110, reach: 2.2, speed: 1.2, zoom: 1.15, desc: '가장 빠르게 달림 · 뒤에서 찌르면 즉사' },
+  grenade: { id: 'grenade', name: '수류탄', icon: '💣', slot: 3, throw: true, count: 2, dmg: 150, radius: 7.5, fuse: 2.2, speed: 1.05, zoom: 1.15, desc: '2.2초 뒤 폭발' },
   // 좀비 (근접 공격만)
   claw: { id: 'claw', name: '할퀴기', slot: 0, melee: true, dmg: 14, head: 1, rpm: 70, reach: 1.9, speed: 1 },
 };

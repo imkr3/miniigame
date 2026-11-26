@@ -425,7 +425,7 @@ export default class Fps extends GameBase {
     setSoldierGun(a.model, a.primary);
   }
   randomPrimary() { return this.pickPrimary(Math.random()); }
-  pickPrimary(r) { return r < 0.3 ? 'ar' : r < 0.5 ? 'smg' : r < 0.6 ? 'shotgun' : r < 0.72 ? 'sniper' : r < 0.84 ? 'lmg' : r < 0.94 ? 'dmr' : 'launcher'; }
+  pickPrimary(r) { return r < 0.42 ? 'ar' : r < 0.68 ? 'smg' : r < 0.8 ? 'shotgun' : r < 0.85 ? 'sniper' : r < 0.93 ? 'lmg' : r < 0.99 ? 'dmr' : 'launcher'; }
 
   startMatch() {
     const mp = this.multi;
@@ -546,7 +546,7 @@ export default class Fps extends GameBase {
     const s = Math.sin(p.yaw), c = Math.cos(p.yaw);
     const wx = mx * c + mz * s, wz = -mx * s + mz * c;
     p.crouch = this.isDown('crouch') || tc.crouch;
-    const wantAds = (this.mouse.ads || this.isDown('ads') || tc.ads) && p.reloadT <= 0 && p.switchT <= 0 && !this.curDef(p).melee && !this.curDef(p).throw;
+    const wantAds = (this.mouse.ads || this.isDown('ads') || tc.ads) && p.reloadT <= 0 && p.switchT <= 0;
     const sprint = (this.isDown('sprint') || (tm && tc.mz < -0.92)) && mz < -0.3 && !wantAds && !p.crouch;
     p.ads = wantAds;
     this.adsK += ((wantAds ? 1 : 0) - this.adsK) * Math.min(1, dt * 14);
@@ -773,7 +773,7 @@ export default class Fps extends GameBase {
       if (by !== v) this.dmgInd.push({ x: by.x, z: by.z, t: 1.2 });
     }
     if (by.ai) by.ai.engageT = 0;
-    if (v.ai && !v.zombie) { v.ai.alertT = 3; if (!v.ai.target && by !== v) { v.ai.chase = [by.x, by.z]; v.ai.goal = null; } }
+    if (v.ai && !v.zombie) { v.ai.alertT = 3; if (!v.ai.target && by !== v) { v.ai.chase = [by.x + rnd(-4, 4), by.z + rnd(-4, 4)]; v.ai.goal = null; } }
     if (v.hp <= 0) this.kill(v, by, wid, head);
   }
   kill(v, by, wid, head) {
@@ -1048,7 +1048,7 @@ export default class Fps extends GameBase {
       const sp = Math.hypot(p.vx, p.vz) / WALK;
       const spread = def.melee || def.throw ? 0.012 : def.spread[0] + (def.spread[1] - def.spread[0]) * this.adsK + p.bloom + (1 - this.adsK * 0.6) * sp * 0.018 + (p.grounded ? 0 : 0.03);
       const gap = 3 + spread * 330, len = 6, cx = W / 2, cy = H / 2;
-      ctx.globalAlpha = 1 - this.adsK * (def.melee ? 0 : 0.7);
+      ctx.fillStyle = 'rgba(0,0,0,.85)'; ctx.fillRect(cx - 1.6, cy - 1.6, 3.2, 3.2);
       ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
       const cross = () => { ctx.beginPath(); ctx.moveTo(cx - gap - len, cy); ctx.lineTo(cx - gap, cy); ctx.moveTo(cx + gap, cy); ctx.lineTo(cx + gap + len, cy); ctx.moveTo(cx, cy - gap - len); ctx.lineTo(cx, cy - gap); ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + gap + len); ctx.stroke(); };
       cross(); ctx.strokeStyle = this.aimAt && this.aimAt.team !== p.team ? '#f87171' : '#f8fafc'; ctx.lineWidth = 1.5; cross();
