@@ -27,9 +27,9 @@ export const MODES = [
 ];
 
 export const DIFFS = {
-  easy: { name: '쉬움', react: 0.6, turn: 3.2, err: 0.05, dmg: 0.55, burst: [2, 4], see: 45 },
-  normal: { name: '보통', react: 0.38, turn: 5, err: 0.028, dmg: 0.75, burst: [3, 6], see: 60 },
-  hard: { name: '어려움', react: 0.22, turn: 7.5, err: 0.014, dmg: 1, burst: [4, 8], see: 80 },
+  easy: { name: '쉬움', react: 0.6, turn: 3.2, err: 0.045, dmg: 0.55, burst: [2, 4], see: 45 },
+  normal: { name: '보통', react: 0.38, turn: 5, err: 0.025, dmg: 0.75, burst: [3, 6], see: 60 },
+  hard: { name: '어려움', react: 0.22, turn: 7.5, err: 0.0125, dmg: 1, burst: [4, 8], see: 80 },
 };
 
 export const BOT_NAMES = ['독수리', '늑대', '불곰', '매', '표범', '코브라', '상어', '호랑이', '여우', '들소', '까마귀', '전갈', '수달', '올빼미', '재규어', '바이퍼', '하이에나', '맹금', '도베르만', '살쾡이'];

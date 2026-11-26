@@ -6,7 +6,7 @@ import { sfx } from '../sfx.js';
 import { WEAPONS, PRIMARIES, MODES, DIFFS, BOT_NAMES, MAPS, ZOMBIES, rankOf } from './fps/data.js';
 import { World } from './fps/world.js';
 import { buildSoldier, setSoldierGun, animateSoldier, ViewModel, Effects, buildGrenadeMesh, buildPickup } from './fps/models.js';
-import { newAI, updateBot, updateZombie, alertBots } from './fps/bots.js';
+import { newAI, updateBot, updateZombie, alertBots, noticeTracer } from './fps/bots.js';
 
 let W = 640; const H = 360; // W 는 화면 비율에 따라 640~800
 const EYE = 1.6, EYE_CROUCH = 1.05, BODY_H = 1.8, BODY_H_CROUCH = 1.25, RADIUS = 0.32;
@@ -184,6 +184,8 @@ export default class Fps extends GameBase {
     if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
   }
   onDestroy() {
+    document.removeEventListener('fullscreenchange', this._onKeyboardModeChange);
+    this.releaseMovementKeys();
     document.removeEventListener('mousemove', this._onMouseMove);
     document.removeEventListener('pointerlockchange', this._onLockChange);
     window.removeEventListener('mouseup', this._onMouseUp);
@@ -278,17 +280,41 @@ export default class Fps extends GameBase {
 
   // ---------------- 입력 ----------------
   isLocked() { const root = this.$screen.getRootNode?.() ?? document; return (root.pointerLockElement ?? document.pointerLockElement) === this.$screen; }
+  acceptModifiedKey(e, action) {
+    return this.state === 'playing' && this.phase === 'play' && e.ctrlKey && !e.metaKey && !e.altKey
+      && ['left', 'right', 'up', 'down'].includes(action);
+  }
+  releaseMovementKeys() {
+    if (!this.movementLock) return;
+    this.movementLock = null;
+    navigator.keyboard?.unlock?.();
+  }
+  syncMovementKeys() {
+    if (!document.fullscreenElement || !this.isLocked() || this.state !== 'playing' || this.phase !== 'play') {
+      this.releaseMovementKeys();
+      return;
+    }
+    if (this.movementLock || !navigator.keyboard?.lock) return;
+    const codes = Object.keys(this.keymap).filter(code => ['left', 'right', 'up', 'down'].includes(this.keymap[code]));
+    if (!codes.length) return;
+    const pending = navigator.keyboard.lock(codes);
+    this.movementLock = pending;
+    pending.catch(() => { if (this.movementLock === pending) this.movementLock = null; });
+  }
   requestLock() {
     if (this.touchMode || this.isLocked()) return;
     try { const p = this.$screen.requestPointerLock?.(); p?.catch?.(() => {}); } catch { /* 지원 안 함 → 키보드 방향키로 조준 */ }
   }
   bindInput() {
+    this._onKeyboardModeChange = () => this.syncMovementKeys();
+    document.addEventListener('fullscreenchange', this._onKeyboardModeChange);
     this._onMouseMove = (e) => { if (this.isLocked() && this.state === 'playing') { this.look.dx += e.movementX; this.look.dy += e.movementY; } };
     this._onLockChange = () => {
       const locked = this.isLocked();
       if (!locked && this.wasLocked && this.state === 'playing' && this.phase === 'play' && !this.multi) this.pause();
       this.wasLocked = locked;
       if (!locked) this.mouse.fire = this.mouse.ads = false;
+      this.syncMovementKeys();
     };
     document.addEventListener('mousemove', this._onMouseMove);
     document.addEventListener('pointerlockchange', this._onLockChange);
@@ -416,7 +442,7 @@ export default class Fps extends GameBase {
     for (const a of this.actors) this.dyn.remove(a.model.root);
     for (const g of this.grenades) this.dyn.remove(g.mesh);
     for (const p of this.pickups) this.dyn.remove(p.mesh);
-    this.actors = []; this.grenades = []; this.pickups = []; this.feed = []; this.dmgInd = []; this.dmgNums = []; this.player = null;
+    this.actors = []; this.grenades = []; this.pickups = []; this.feed = []; this.dmgInd = []; this.damageReadout = null; this.player = null;
   }
 
   makeActor(o) {
@@ -667,7 +693,7 @@ export default class Fps extends GameBase {
       const h = this.hitActor(a, o, d, wt);
       const t = h ? h.t : wt, ex = o[0] + d[0] * t, ey = o[1] + d[1] * t, ez = o[2] + d[2] * t;
       ends.push(r2(ex), r2(ey), r2(ez));
-      if (k < 3) this.effects.tracer(mx, my, mz, ex, ey, ez);
+      if (k < 3) this.showTracer(a.team, mx, my, mz, ex, ey, ez);
       if (h) {
         this.effects.blood(ex, ey, ez, h.a.zombie);
         if (h.a.team !== a.team) {
@@ -690,6 +716,10 @@ export default class Fps extends GameBase {
       if (def.id === 'sniper') { this.touch.ads = false; this.$touch.querySelector('.f-ads')?.classList.remove('on'); }
     }
     if (this.multi && !a.remote) this.multi.net.relay({ k: 'sh', id: a.id, w: def.id, o: [r2(mx), r2(my), r2(mz)], e: ends.slice(0, 9) });
+  }
+  showTracer(team, x, y, z, ex, ey, ez) {
+    this.effects.tracer(x, y, z, ex, ey, ez);
+    noticeTracer(this, team, x, y, z, ex, ey, ez);
   }
   gunSound(id, a) {
     const s = GUN_SND[id]; if (!s) return;
@@ -781,8 +811,13 @@ export default class Fps extends GameBase {
   damage(v, amount, by, wid, head) {
     if (!v.alive || v.protectT > 0 || this.matchOver) return;
     amount = Math.round(amount);
-    if (by.isPlayer && v !== by) { (this.dmgNums ??= []).push({ x: v.x, y: v.y + 1.9 * v.scale, z: v.z, n: amount, head, t: 0.7 }); if (this.dmgNums.length > 12) this.dmgNums.shift(); }
-    if (by.isPlayer && v !== by) { this.hitT = 0.18; this.hitKill = false; sfx.tone(head ? 1900 : 1300, head ? 1900 : 1300, 0.035, 0.05, 'square'); }
+    if (by.isPlayer && v !== by) {
+      const prev = this.damageReadout;
+      const total = prev?.target === v && prev.t > 0 ? prev.total + amount : amount;
+      this.damageReadout = { target: v, total, head, t: 0.7 };
+      this.hitT = 0.18; this.hitKill = false;
+      sfx.tone(head ? 1900 : 1300, head ? 1900 : 1300, 0.035, 0.05, 'square');
+    }
     if (v.remote) { this.multi?.net.relay({ k: 'hit', to: v.id, by: by.id, d: amount, w: wid, h: head ? 1 : 0 }); return; }
     v.hp -= amount; v.lastHurtT = this.time; v.lastHurtBy = by;
     if (v.isPlayer) {
@@ -851,9 +886,7 @@ export default class Fps extends GameBase {
     for (const f of this.feed) f.t -= dt;
     for (const d of this.dmgInd) d.t -= dt;
     this.dmgInd = this.dmgInd.filter((d) => d.t > 0);
-    for (let i = this.dmgNums.length - 1; i >= 0; i--) {
-      if ((this.dmgNums[i].t -= dt) <= 0) this.dmgNums.splice(i, 1);
-    }
+    if (this.damageReadout && (this.damageReadout.t -= dt) <= 0) this.damageReadout = null;
 
     this.updatePlayer(dt);
     // 좀비용 거리 지도
@@ -1077,13 +1110,6 @@ export default class Fps extends GameBase {
       ctx.globalAlpha = 1; ctx.lineCap = 'butt';
       if (p.reloadT > 0) { ctx.strokeStyle = '#fde68a'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(cx, cy, 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - p.reloadT / p.reloadDur)); ctx.stroke(); text('재장전', cx, cy + 32, F(9), '#fde68a', 'center'); }
     }
-    // 준 피해 숫자: 맞은 적 머리 위로 떠오름 (헤드샷은 노랗고 크게)
-    for (const d of this.dmgNums) {
-      const s = this.project(d.x, d.y + (0.7 - d.t) * 0.9, d.z); if (!s) continue;
-      ctx.globalAlpha = Math.min(1, d.t * 3);
-      text(String(d.n), s[0], s[1], F(d.head ? 13 : 10), d.head ? '#fde047' : '#fff', 'center');
-    }
-    ctx.globalAlpha = 1;
     // 명중 표시
     if (this.hitT > 0) {
       const k = this.hitT / (this.hitKill ? 0.3 : 0.18), g = 5 + (1 - k) * 4, l = this.hitKill ? 8 : 5;
@@ -1160,6 +1186,12 @@ export default class Fps extends GameBase {
     else if (def.throw) text(`× ${p.nades}`, ax - 6, ay, F(20), '#fff', 'right');
     else { text(`/ ${w.reserve}`, ax - 6, ay, F(11, 700), '#9ca3af', 'right'); ctx.font = F(11, 700); const rw = ctx.measureText(`/ ${w.reserve}`).width; text(String(w.mag), ax - 10 - rw, ay, F(22), w.mag <= def.mag * 0.25 ? '#f87171' : '#fff', 'right'); }
     text(def.name, ax - 156, ay - 20, F(11), '#fde68a');
+    if (this.damageReadout) {
+      const { total, head, t } = this.damageReadout;
+      ctx.globalAlpha = Math.min(1, t * 5);
+      text(`피해 ${total}`, ax - 6, ay - 20, F(10), head ? '#fde047' : '#fff', 'right');
+      ctx.globalAlpha = 1;
+    }
     p.weapons.forEach((x, i) => { const on = i === p.cur, bx = ax - 156 + i * 19; ctx.fillStyle = on ? '#3b82f6' : 'rgba(255,255,255,.12)'; ctx.beginPath(); ctx.roundRect(bx, ay - 12, 17, 12, 3); ctx.fill(); text(x.def.throw ? `${p.nades}` : String(i + 1), bx + 8.5, ay - 3, F(8), x.def.throw && !p.nades ? '#6b7280' : '#fff', 'center'); });
     // 가운데 알림
     if (this.msg) { ctx.globalAlpha = Math.min(1, this.msg.t * 2); text(this.msg.text, W / 2, H * 0.3, F(18), this.msg.color ?? '#fff', 'center'); ctx.globalAlpha = 1; }
@@ -1295,7 +1327,7 @@ export default class Fps extends GameBase {
       case 'sh': {
         const a = this.byId(d.id); if (!a?.remote) break;
         a.flashT = 0.05; a.seenT = this.time;
-        for (let i = 0; i < d.e.length; i += 3) this.effects.tracer(d.o[0], d.o[1], d.o[2], d.e[i], d.e[i + 1], d.e[i + 2]);
+        for (let i = 0; i < d.e.length; i += 3) this.showTracer(a.team, d.o[0], d.o[1], d.o[2], d.e[i], d.e[i + 1], d.e[i + 2]);
         this.gunSound(d.w, a);
         break;
       }

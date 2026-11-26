@@ -892,7 +892,7 @@ export class GameBase {
       }
       const a = this.keymap[e.code];
       const mod = (e.ctrlKey || e.metaKey || e.altKey) && !MODIFIER_CODES.includes(e.code);
-      if (!a || mod) return;
+      if (!a || (mod && !this.acceptModifiedKey?.(e, a))) return;
       if (e.target.closest?.('input,textarea,select,[contenteditable]')) return;
       e.preventDefault();
       sfx.unlock();

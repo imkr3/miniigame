@@ -8,7 +8,7 @@ const PREF = { dmr: 28, launcher: 15, ar: 17, smg: 9, shotgun: 5, sniper: 34, lm
 
 export function newAI() {
   return { target: null, senseT: Math.random() * 0.2, reactT: 0, errX: 0, errY: 0, errT: 0, burst: 0, pause: 0, strafe: Math.random() < 0.5 ? 1 : -1, strafeT: 0,
-    engageT: 0, headOnly: false, goal: null, path: null, pi: 0, repathT: 0, stuckT: 0, lastX: 0, lastZ: 0, fails: 0, alertT: 0, chase: null, lastSeen: null, nadeCd: rnd(4, 12), crouchT: 0, jumpCd: 0 };
+    engageT: 0, headOnly: false, goal: null, path: null, pi: 0, repathT: 0, stuckT: 0, lastX: 0, lastZ: 0, fails: 0, alertT: 0, chase: null, lastSeen: null, tracerT: 0, nadeCd: rnd(4, 12), crouchT: 0, jumpCd: 0 };
 }
 
 /** 총소리·피격 등으로 주변 적 봇에게 위치를 알림 */
@@ -25,6 +25,24 @@ export function alertBots(game, x, z, team, radius) {
 }
 
 function eyeY(a) { return a.y + (a.crouch ? 1.05 : 1.6) * (a.scale ?? 1); }
+
+// 가까이 지나간 예광탄은 날아온 방향만 알려 준다. 표적 획득은 sense()가 맡는다.
+export function noticeTracer(game, team, x, y, z, ex, ey, ez) {
+  const dx = ex - x, dy = ey - y, dz = ez - z, lengthSq = dx * dx + dy * dy + dz * dz;
+  if (lengthSq < 0.01) return;
+  for (const b of game.actors) {
+    const ai = b.ai;
+    if (!ai || !b.alive || b.remote || b.zombie || b.team === team || ai.target) continue;
+    const by = eyeY(b);
+    const u = Math.min(1, ((b.x - x) * dx + (by - y) * dy + (b.z - z) * dz) / lengthSq);
+    if (u <= 0) continue;
+    const px = x + u * dx, py = y + u * dy, pz = z + u * dz;
+    if ((b.x - px) ** 2 + (by - py) ** 2 + (b.z - pz) ** 2 > 9 || !game.world.los(b.x, by, b.z, px, py, pz)) continue;
+    ai.tracerYaw = Math.atan2(dx, dz);
+    ai.tracerPitch = Math.atan2(-dy, Math.hypot(dx, dz));
+    ai.tracerT = 0.85; ai.alertT = 3;
+  }
+}
 
 function sense(game, a) {
   const ai = a.ai, D = game.diff, W = game.world;
@@ -91,6 +109,7 @@ function follow(game, a, dt) {
 
 export function updateBot(game, a, dt) {
   const ai = a.ai, D = game.diff;
+  ai.tracerT -= dt;
   ai.alertT -= dt; ai.nadeCd -= dt; ai.jumpCd -= dt;
   if ((ai.senseT -= dt) <= 0) { ai.senseT = rnd(0.1, 0.2); sense(game, a); }
   const t = ai.target, w = a.weapons[a.cur], id = w.def.id;
@@ -138,7 +157,8 @@ export function updateBot(game, a, dt) {
   } else {
     a.crouch = false;
     const f = follow(game, a, dt); wx = f[0]; wz = f[1];
-    if (wx || wz) wantYaw = Math.atan2(-wx, -wz);
+    if (ai.tracerT > 0) { wantYaw = ai.tracerYaw; wantPitch = ai.tracerPitch; }
+    else if (wx || wz) wantYaw = Math.atan2(-wx, -wz);
     sprint = !!ai.path && ai.path.length - ai.pi > 6 && ai.alertT <= 0;
   }
   // 막혔는지 확인: 1초 동안 거의 못 움직였으면 뛰어 보고, 길을 다시 찾고, 옆걸음 방향을 바꿈
