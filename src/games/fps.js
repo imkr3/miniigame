@@ -480,7 +480,7 @@ export default class Fps extends GameBase {
     this.timeLeft = this.mode.time ?? 0;
     this.teamScore = [0, 0];
     this.phase = 'play'; this.startT = 2.6; this.endT = 0; this.matchOver = false;
-    this.recoil = 0; this.adsK = 0; this.hitT = 0; this.hitKill = false; this.hurtT = 0; this.msg = null; this.lastKillT = -99; this.multiKill = 0; this.shakeT = 0; this.eyeY = EYE; this.bobT = 0; this.stepT = 0;
+    this.recoil = 0; this.adsK = 0; this.hitT = 0; this.hitKill = false; this.hurtT = 0; this.msg = null; this.killNotice = null; this.lastKillT = -99; this.multiKill = 0; this.shakeT = 0; this.eyeY = EYE; this.bobT = 0; this.stepT = 0;
     this.stats = { kills: 0, deaths: 0, head: 0, shots: 0, hits: 0, bestStreak: 0, xp: 0 };
     this.wave = 0; this.waveT = 3; this.zQueue = []; this.zAlive = 0; this.flow = null; this.flowT = 0;
     this.touch.ads = this.touch.crouch = false;
@@ -624,17 +624,17 @@ export default class Fps extends GameBase {
     const wall = this.world.ray(o[0], o[1], o[2], d[0], d[1], d[2], 120);
     const h = this.hitActor(p, o, d, wall ? wall.t : 120);
     this.aimDist = h ? h.t : Infinity; this.aimAt = h?.a ?? null;
-    return h && h.a.team !== p.team ? h : null;
+    return h;
   }
 
   // ---------------- 무기 ----------------
   eyeOf(a) { return [a.x, a.y + (a.isPlayer ? this.eyeY : (a.crouch ? EYE_CROUCH : EYE) * a.scale), a.z]; }
   dirOf(yaw, pitch) { const cp = Math.cos(pitch); return [-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp]; }
-  /** 광선이 맞는 가장 가까운 사람 (자기 자신 제외) → { a, t, head } */
-  hitActor(self, o, d, maxT, anyTeam = true) {
+  /** 벽보다 앞에서 광선이 맞는 가장 가까운 적 → { a, t, head } */
+  hitActor(self, o, d, maxT) {
     let best = null;
     for (const e of this.actors) {
-      if (!e.alive || e === self || (!anyTeam && e.team === self.team)) continue;
+      if (!e.alive || e === self || e.team === self.team) continue;
       const s = e.scale, ox = o[0] - e.x, oz = o[2] - e.z, r = 0.36 * s;
       // 몸통: 세로 원기둥
       const A = d[0] * d[0] + d[2] * d[2], B = 2 * (ox * d[0] + oz * d[2]), C = ox * ox + oz * oz - r * r;
@@ -653,7 +653,7 @@ export default class Fps extends GameBase {
     const w = a.weapons[a.cur];
     if (!a.alive || a.reloadT > 0 || w.def.melee || w.def.throw || w.mag >= w.def.mag || w.reserve <= 0 || a.switchT > 0) return;
     a.reloadT = a.reloadDur = w.def.reload * (a.ai ? 1.1 : 1);
-    if (a.isPlayer) { this.sound('lock'); this.touch.ads = false; this.$touch.querySelector('.f-ads')?.classList.remove('on'); }
+    if (a.isPlayer) { this.sound('fpsMagOut'); this.touch.ads = false; this.$touch.querySelector('.f-ads')?.classList.remove('on'); }
   }
   switchWeapon(a, i) {
     if (!a.alive || i === a.cur || !a.weapons[i]) return;
@@ -850,8 +850,8 @@ export default class Fps extends GameBase {
       this.addScore(pts); st.xp += Math.round(pts * 0.5);
       this.multiKill = this.time - this.lastKillT < 4 ? this.multiKill + 1 : 1; this.lastKillT = this.time;
       const txt = this.multiKill >= 4 ? '쿼드라 킬!!' : this.multiKill === 3 ? '트리플 킬!' : this.multiKill === 2 ? '더블 킬!' : by.streak === 5 ? '5연속 처치!' : by.streak === 10 ? '10연속! 전장의 지배자' : head ? '헤드샷!' : wid === 'knife' ? '칼 처치!' : null;
-      if (txt) this.msg = { text: txt, t: 1.6, color: head && this.multiKill < 2 ? '#fde68a' : '#fb923c' };
-      this.sound(this.multiKill >= 2 || by.streak === 5 ? 'levelup' : 'bonus');
+      this.killNotice = txt ? `${v.name} 처치 · ${txt}` : `${v.name} 처치`;
+      this.sound(this.multiKill >= 2 ? 'fpsMultiKill' : 'fpsKill');
     }
     if (v.isPlayer) {
       this.stats.deaths++; this.mouse.fire = false; this.touch.fire = false;
@@ -900,7 +900,7 @@ export default class Fps extends GameBase {
         if (!a.zombie && !this.mode.zombie && !this.matchOver && (a.respawnT -= dt) <= 0) this.spawn(a);
         continue;
       }
-      if (a.reloadT > 0 && (a.reloadT -= dt) <= 0) { const w = a.weapons[a.cur], n = Math.min(w.def.mag - w.mag, w.reserve); w.mag += n; w.reserve -= n; if (a.isPlayer) this.sound('rotate'); }
+      if (a.reloadT > 0 && (a.reloadT -= dt) <= 0) { const w = a.weapons[a.cur], n = Math.min(w.def.mag - w.mag, w.reserve); w.mag += n; w.reserve -= n; if (a.isPlayer) this.sound('fpsMagIn'); }
       if (a.hp < a.maxHp && !a.zombie && this.time - a.lastHurtT > REGEN_DELAY) a.hp = Math.min(a.maxHp, a.hp + REGEN_RATE * dt);
       if (a.ai && !this.matchOver && this.startT <= 0.6) (a.zombie ? updateZombie : updateBot)(this, a, dt);
       else if (a.ai) this.stepActor(a, 0, 0, dt);
@@ -1161,6 +1161,12 @@ export default class Fps extends GameBase {
       text(`${rank}위 · ${p.kills}킬`, W / 2 - 14, top + 3, F(12), '#60a5fa', 'right');
       text(fmtTime(this.timeLeft), W / 2 + 12, top + 3, F(11, 700), '#e5e7eb', 'center');
       text(`1위 ${order[0].kills}/${this.goal}`, W / 2 + 34, top + 3, F(10, 700), '#fca5a5', 'left');
+    }
+    const noticeLeft = 1.6 - (this.time - this.lastKillT);
+    if (this.killNotice && noticeLeft > 0) {
+      ctx.globalAlpha = Math.min(1, noticeLeft * 4);
+      text(this.killNotice, W / 2, top + 34, F(13), '#fde68a', 'center');
+      ctx.globalAlpha = 1;
     }
     // 킬 로그
     this.feed.forEach((f, i) => {

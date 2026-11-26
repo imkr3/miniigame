@@ -1,5 +1,9 @@
 // WebAudio 신시사이저 효과음 (외부 음원 파일 없음)
 const PRESETS = {
+  fpsKill:      { type: 'triangle', notes: [660, 990], d: 0.075, v: 0.10 },
+  fpsMultiKill: { type: 'triangle', notes: [660, 990, 1320], d: 0.065, v: 0.10 },
+  fpsMagOut:    { type: 'sawtooth', f: [280, 105], d: 0.065, v: 0.035 },
+  fpsMagIn:     { type: 'triangle', notes: [190, 480], d: 0.035, v: 0.085 },
   move:    { type: 'square',   f: [220, 220], d: 0.03, v: 0.025 },
   rotate:  { type: 'square',   f: [440, 560], d: 0.05, v: 0.035 },
   drop:    { type: 'triangle', f: [220, 70],  d: 0.12, v: 0.15 },
